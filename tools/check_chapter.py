@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v6.1 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.0 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
-只做机器可判定校验（23项中的脚本部分），语义类校验由 AI 对照 mind/ 档案执行。
+只做机器可判定校验（26项中的脚本部分），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
 """
@@ -74,6 +74,12 @@ BIGRAM_WHITELIST = set([
     "她的", "这是", "那是", "可以", "不会", "这么", "那么", "怎么", "还是",
     "也是", "都是", "说着", "看着", "对了", "说道", "話说",
 ])
+
+# AI味指数（粗测）用：比喻词、情绪词
+SIMILE_WORDS = ["好像", "像是", "就像", "似的", "般的", "般地"]
+EMOTION_WORD_LIST = ["愤怒", "悲伤", "高兴", "快乐", "害怕", "恐惧", "紧张", "失望",
+                     "痛苦", "委屈", "羞愧", "尴尬", "欣慰", "绝望", "无奈", "心疼",
+                     "得意", "后悔", "震惊", "惊讶", "疑惑", "茫然"]
 
 TITLE_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]")
 SKIP_LINE_RE = re.compile(r"^\s*(#[^#]|>|```|\||---+|===+|\*{3,})")
@@ -206,6 +212,31 @@ def check(path, wmin, wmax):
            if n >= 8 and w not in BIGRAM_WHITELIST and not (w[0] == w[1])]
     if hot:
         warnings.append("高频词疑似复用: " + "、".join(f"「{w}」×{n}" for w, n in hot) + "——查是否同词近距离重复")
+
+    # ── 信息级：AI味指数（粗测，0-10，越高越要人工过目）──
+    import statistics
+    sents = [s for s in re.split("[。！？…]+", body) if count_chars(s) > 0]
+    sent_lens = [count_chars(s) for s in sents]
+    sent_sd = statistics.pstdev(sent_lens) if len(sent_lens) > 3 else 20
+    para_sd = statistics.pstdev(para_lens) if len(para_lens) > 3 else 60
+    simile = sum(body.count(w) for w in SIMILE_WORDS)
+    emo = sum(body.count(w) for w in EMOTION_WORD_LIST)
+    simile_d = simile / total * 1000 if total else 0
+    emo_d = emo / total * 1000 if total else 0
+    avg_sents_per_para = len(sents) / len(lines) if lines else 0
+    score = 0
+    reasons = []
+    if sent_sd < 8:
+        score += 2; reasons.append(f"句长波动低(sd={sent_sd:.0f})")
+    if para_sd < 30:
+        score += 2; reasons.append(f"段长波动低(sd={para_sd:.0f})")
+    if simile_d >= 6:
+        score += 2; reasons.append(f"比喻词密度{simile_d:.1f}/千字")
+    if emo_d >= 6:
+        score += 2; reasons.append(f"情绪词密度{emo_d:.1f}/千字")
+    if avg_sents_per_para > 5:
+        score += 2; reasons.append(f"平均每段{avg_sents_per_para:.1f}句")
+    print(f"[i] AI味指数(粗测) = {score}/10" + ("：" + "；".join(reasons) if reasons else "，机器指标均正常"))
 
     print("-" * 46)
     for w in warnings:
