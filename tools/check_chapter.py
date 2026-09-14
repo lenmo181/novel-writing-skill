@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.0 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.3 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
 只做机器可判定校验（26项中的脚本部分），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤
@@ -51,6 +51,16 @@ CLICHE = [
     "深吸一口气", "深吸了一口气", "攥紧了拳头", "捏紧了拳头", "握紧了拳头",
     "露出一丝", "浮现出一丝", "意味深长", "若有所思", "不置可否",
     "眼神复杂", "目光复杂", "心头一震", "心头一颤", "心中暗道", "心中一动",
+]
+
+# v7.3 新增：AI式意象表达（出现即警告，按去AI味手册 Gate H 处理）
+AI_VOGUE = [
+    "空气凝固", "空气仿佛凝固", "时间仿佛静止", "时间静止", "泛起涟漪",
+    "心中泛起", "如潮水般", "潮水般涌", "无形的弦", "理智的弦",
+    "沉默震耳欲聋", "黑暗将他吞没", "黑暗吞没", "说不清的情绪",
+    "有什么东西悄然", "这一刻，他终于明白", "这一刻，她终于明白",
+    "这一刻终于明白", "千言万语", "眸色深了", "指尖发白", "指尖微微发白",
+    "心脏漏跳", "呼吸一滞", "像一把刀刺入", "石子投入",
 ]
 
 # 对话提示语（说道类）合计限频
@@ -182,6 +192,19 @@ def check(path, wmin, wmax):
     if body.count("一丝") > 2:
         warnings.append(f"「一丝」出现 {body.count('丝')} 次级联（'一丝'×{body.count('一丝')}，>2 建议删减）")
 
+    # ── v7.3：AI式意象表达（出现即警告）──
+    v_hits = [(w, body.count(w)) for w in AI_VOGUE if w in body]
+    if v_hits:
+        warnings.append("AI式意象表达: " + "、".join(f"{w}×{n}" for w, n in v_hits) + "——抽象意象换具体动作（Gate H）")
+
+    # ── v7.3：比喻限额（每800字≤1处明显比喻，保底2处）──
+    simile_total = sum(body.count(w) for w in SIMILE_WORDS)
+    simile_quota = max(2, total // 800)
+    if simile_total > simile_quota:
+        warnings.append(f"比喻词共 {simile_total} 处，超限额 {simile_quota}（每800字≤1处）——删掉不影响句意的比喻（Gate H）")
+    else:
+        print(f"[✓] 比喻词 {simile_total} 处（限额 {simile_quota}）")
+
     # ── 9 排版（v6.1）──
     para_lens = [count_chars(ln) for ln in lines]
     walls = [(i + 1, n) for i, n in enumerate(para_lens) if n > 160]
@@ -254,7 +277,7 @@ def check(path, wmin, wmax):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="章节机械校验 v6.1")
+    ap = argparse.ArgumentParser(description="章节机械校验 v7.3")
     ap.add_argument("file")
     ap.add_argument("--min", type=int, default=2500)
     ap.add_argument("--max", type=int, default=3000)
