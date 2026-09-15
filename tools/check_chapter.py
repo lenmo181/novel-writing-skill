@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.4 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.10 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
                              [--quote chal|straight|any] [--dialog-min 40]
-只做机器可判定校验（29项中的脚本12项），语义类校验由 AI 对照 mind/ 档案执行。
+只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤(禁止交付), 2=输入错误(文件不存在/不可读)
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
 
@@ -148,6 +148,14 @@ EMOTION_WORD_LIST = ["愤怒", "悲伤", "高兴", "快乐", "害怕", "恐惧",
                      "得意", "后悔", "震惊", "惊讶", "疑惑", "茫然"]
 
 TITLE_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]")
+# v7.10 新增：章节名机械检查口径（真源=常量表·三B）
+TITLE_PREFIX_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]\s*(.*)$")
+TITLE_SEPARATORS_RE = re.compile(r"^[·：:、\-\s]+")
+TITLE_MIN = 2   # 少于2字=无信息量，硬伤
+TITLE_MAX = 12  # 番茄目录约12字截断；超长警告
+# 全等命中即硬伤（空泛总结题；半空泛如「初入XX/XX前夕」归第28项 AI 语义核验）
+GENERIC_TITLES = {"开端", "开始", "新的开始", "新的一天", "正文", "无题",
+                  "过渡", "章节", "连载", "更新", "日常", "小插曲"}
 SKIP_LINE_RE = re.compile(r"^\s*(#[^#]|>|```|\||---+|===+|\*{3,})")
 MARKER_RE = re.compile(r"【[^】]*(?:段完成|累计|对话约|全章对话|广告位)[^】]*】")
 
@@ -189,6 +197,28 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
     lines, dropped = body_lines(text)
     body = "\n".join(lines)
     failures, warnings = [], []
+
+    # ── 13 章节名规范（v7.10 新增；30项校验第13项，口径=常量表·三B）──
+    title_lines = [ln.strip() for ln in text.splitlines() if TITLE_RE.match(ln)]
+    title, t_len = "", 0
+    if title_lines:
+        if len(title_lines) > 1:
+            warnings.append(f"检测到 {len(title_lines)} 个标题行——正文里混入的「第X章」行会被剔除，请核查")
+        pm = TITLE_PREFIX_RE.match(title_lines[0])
+        title = TITLE_SEPARATORS_RE.sub("", (pm.group(1) if pm else "").strip())
+        t_len = count_chars(title)
+        if not title:
+            failures.append("章节名缺失：标题行只有章号没有题名（如「第3章」）——章名是目录页的一秒钩子，按《章节名规范》章名四式补起")
+        elif t_len < TITLE_MIN:
+            failures.append(f"章节名「{title}」仅 {t_len} 字（<{TITLE_MIN}），无信息量——按《章节名规范》重起")
+        elif title in GENERIC_TITLES:
+            failures.append(f"章节名「{title}」命中空泛黑名单，零钩子——按《章节名规范》章名四式（悬念反常/金手指直给/冲突预告/名台词）重起")
+        elif t_len > TITLE_MAX:
+            warnings.append(f"章节名「{title}」{t_len} 字 >{TITLE_MAX}（番茄目录约12字截断），压缩到钩子最亮的短句")
+        else:
+            print(f"[✓] 章节名「{title}」= {t_len} 字（{TITLE_MIN}-{TITLE_MAX} 区间，非黑名单）")
+    else:
+        warnings.append("未检测到章节标题行（第N章 XXX）——长篇落盘约定必须有；短篇单文件（正文.md）可忽略本条")
 
     # ── 1 字数 ──
     total = count_chars(body)
@@ -342,16 +372,16 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
     print("-" * 46)
     if failures:
         print(f"结论：校验未通过（{len(failures)} 项硬伤，{len(warnings)} 项警告）")
-        print(f"摘要：字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} —— 禁止交付，先修复再跑本脚本")
+        print(f"摘要：章节名={title or '无'}({t_len}字) 字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} —— 禁止交付，先修复再跑本脚本")
         return 1
     print(f"结论：机械校验通过 ✓（另有 {len(warnings)} 项警告需人工过目）")
-    print(f"摘要：字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} A级=0 套话=0")
+    print(f"摘要：章节名={title or '无'}({t_len}字) 字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} A级=0 套话=0")
     return 0
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.4（29项中的脚本12项）",
+        description="章节机械校验 v7.10（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min 默认 40（短剧可传 60）。")
     ap.add_argument("file")
