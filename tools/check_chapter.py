@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.16 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.17 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2100] [--max 2700]
                              [--quote chal|straight|any] [--dialog-min 25] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -164,6 +164,8 @@ GENERIC_TITLES = {"开端", "开始", "新的开始", "新的一天", "正文", 
                   "过渡", "章节", "连载", "更新", "日常", "小插曲"}
 SKIP_LINE_RE = re.compile(r"^\s*(#[^#]|>|```|\||---+|===+|\*{3,})")
 MARKER_RE = re.compile(r"【[^】]*(?:段完成|累计|对话约|全章对话|广告位)[^】]*】")
+# v7.17：正文里禁止夹带的元信息行（自动化写作易残留）
+META_LINE_RE = re.compile(r"^\s*(?:章节更新时间|更新时间|本章字数|字数统计|总字数|发布时间)[：:]")
 
 
 def load_text(path):
@@ -282,6 +284,9 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
     fmt_bad = [d for d in dropped if d.startswith("格式行")]
     if fmt_bad:
         failures.append(f"检测到格式残留（{len(fmt_bad)}行，如: {fmt_bad[0]}）")
+    meta_lines = [ln for ln in lines if META_LINE_RE.match(ln)]
+    if meta_lines:
+        failures.append(f"元信息残留（{len(meta_lines)}行，如: {meta_lines[0].strip()[:30]}）——正文禁止夹带更新时间/字数等元数据（v7.17）")
     if quote_mode == "straight":
         n_half = body.count("\"")
         quotes_balanced = n_half % 2 == 0
@@ -357,10 +362,12 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
     else:
         print(f"[✓] 对话提示语 {tag_total} 次，未超限")
 
-    # ── 警告级：「他/她说：」光杆引导（v7.15 新增）──
+    # ── 「他/她说：」光杆引导（v7.17 分级：≤2 容许 / 3-5 警告 / >5 硬卡）──
     pronoun_tags = [m.group(0) for m in PRONOUN_TAG_RE.finditer(body)]
-    if len(pronoun_tags) > 2:
-        warnings.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>2，如 " +
+    if len(pronoun_tags) > 5:
+        failures.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>5 硬卡）——代词+光杆说贴引号=热榜绝迹的AI指纹，按对话归位五式就地重写")
+    elif len(pronoun_tags) > 2:
+        warnings.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（3-5 警告，如 " +
                         "、".join(pronoun_tags[:4]) + "）——番茄热榜几乎绝迹，就地换动作归位段/裸引号")
     elif pronoun_tags:
         print(f"[i] 「他/她说：」类引导 {len(pronoun_tags)} 次（≤2 容许）: " + "、".join(pronoun_tags[:4]))
@@ -415,7 +422,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.16（30项中的脚本13项，含章节名规范）",
+        description="章节机械校验 v7.17（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min/--dialog-max 默认 25/50（热榜实证 28-51%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
