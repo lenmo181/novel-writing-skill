@@ -1,2 +1,4 @@
 .v2c/
 .video_agent/
+__pycache__/
+*.pyc
