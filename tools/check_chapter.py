@@ -3,7 +3,7 @@
 check_chapter.py — 网络小说创作技能 v7.4 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
                              [--quote chal|straight|any] [--dialog-min 40]
-只做机器可判定校验（28项中的脚本12项），语义类校验由 AI 对照 mind/ 档案执行。
+只做机器可判定校验（29项中的脚本12项），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤(禁止交付), 2=输入错误(文件不存在/不可读)
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
 
@@ -351,7 +351,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.4（28项中的脚本12项）",
+        description="章节机械校验 v7.4（29项中的脚本12项）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min 默认 40（短剧可传 60）。")
     ap.add_argument("file")

@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-grep_consistency.py — mind/ 档案与正文的三类硬矛盾告警（v7.4，轻量·仅告警）
+grep_consistency.py — mind/ 档案与正文的四类硬矛盾告警（v7.9，轻量·仅告警）
 用法: python grep_consistency.py [项目根目录] [--limit 200]
 
-查三类机器可判定的硬矛盾（不做语义推断，只做字面命中）:
+查四类机器可判定的硬矛盾（不做语义推断，只做字面命中）:
     A 已亡/退场实体再度出场 —— 角色状态快照标「已亡/退场」的实体，在其「最后出场」章之后
       的正文里再次出现（名字或别名）
     B 伤势/状态与前文快照冲突 —— 快照状态含伤情标记，而正文同句出现「痊愈/伤愈/无碍」类表述
     C 同一物品双持有人 —— 快照「持有」字段中同一件物品被两个及以上角色同时持有
+    D 剧情推进力告警（v7.9 反打圈）—— mind/章节目录.md 的「节奏类型」列：
+      同一节奏类型连续 ≥3 章，或任意「缓冲-」型合计连续 ≥4 章 → 打圈风险
+      （数据源是章纲/目录标注，检测的是排纲层打圈；正文层打圈靠第29项语义校验）
 
 数据源:
     mind/角色状态快照.md（## 角色名 + “- 字段：值” 行）
+    mind/章节目录.md（Markdown 表格「节奏类型」列，gen_index.py 生成）
     书稿/*.md（按章号排序，只扫描「最后出场」之后的章节，上限 --limit 章）
 
 边界声明: 未提供的档案不推断；扫描有章数上限，输出里会写清扫描范围。
@@ -111,6 +115,57 @@ def iter_chapters(book_dir):
     return out
 
 
+def scan_rhythm_stall(project):
+    """D 类：章节目录「节奏类型」列的连续性检测（排纲层打圈告警）。"""
+    path = os.path.join(project, "mind", "章节目录.md")
+    if not os.path.isfile(path):
+        return []
+    header, seq = None, []
+    for line in load(path).splitlines():
+        s = line.strip()
+        if "|" not in s:
+            continue
+        cells = [c.strip().replace("**", "") for c in s.strip("|").split("|")]
+        if all(c == "" or set(c) <= set("-: ") for c in cells):
+            continue
+        if header is None:
+            if "节奏类型" in cells:
+                header = cells
+            continue
+        if re.fullmatch(r"\d+", cells[0]):
+            idx = header.index("节奏类型")
+            seq.append((int(cells[0]), cells[idx] if idx < len(cells) else ""))
+    issues, i = [], 0
+    while i < len(seq):
+        j = i
+        while j + 1 < len(seq) and seq[j + 1][1] == seq[i][1]:
+            j += 1
+        run = j - i + 1
+        kind = seq[i][1] or "（未标注）"
+        if run >= 3:
+            chs = f"第{seq[i][0]}-第{seq[j][0]}章" if run > 1 else f"第{seq[i][0]}章"
+            issues.append((
+                "D", "中", f"mind/章节目录.md（{chs}）",
+                f"节奏类型「{kind}」连续 {run} 章",
+                "排纲层打圈风险：注入新信息/新人物/新限制或时间跳跃破圈（见《剧情推进力铁律》）"))
+        i = j + 1
+    # 任意缓冲型合计连续 ≥4 章
+    run_buf, start = 0, None
+    for k, (num, kind) in enumerate(seq + [(-1, "#END#")]):
+        if kind.startswith("缓冲"):
+            if run_buf == 0:
+                start = num
+            run_buf += 1
+            continue
+        if run_buf >= 4:
+            issues.append((
+                "D", "中", f"mind/章节目录.md（第{start}章起）",
+                f"「缓冲-」型合计连续 {run_buf} 章",
+                "连续缓冲超限：至少 1 章换主线/峰值型，否则读者追读感会崩"))
+        run_buf = 0
+    return issues
+
+
 def scan(project, limit=200):
     project = os.path.abspath(project)
     snap_path = os.path.join(project, "mind", "角色状态快照.md")
@@ -194,12 +249,15 @@ def scan(project, limit=200):
                 f"物品「{item}」同时被 {'、'.join(uniq)} 持有",
                 "确认是否分身/复制品，否则改为单一持有人"))
 
+    # ── D 剧情推进力（排纲层打圈）──
+    issues.extend(scan_rhythm_stall(project))
+
     return issues
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="mind/ 档案与正文的三类硬矛盾告警（A已亡再出场 / B伤势冲突 / C物品双持有人）")
+        description="mind/ 档案与正文的四类硬矛盾告警（A已亡再出场 / B伤势冲突 / C物品双持有人 / D推进力打圈）")
     ap.add_argument("project", nargs="?", default=".", help="项目根目录（默认当前目录）")
     ap.add_argument("--limit", type=int, default=200, help="最多回溯扫描的章数（默认200）")
     args = ap.parse_args()
@@ -207,7 +265,7 @@ def main():
     issues = scan(args.project, args.limit)
     print("-" * 60)
     if not issues:
-        print("[✓] 未发现三类硬矛盾（A已亡再出场 / B伤势冲突 / C物品双持有人）")
+        print("[✓] 未发现四类硬矛盾（A已亡再出场 / B伤势冲突 / C物品双持有人 / D推进力打圈）")
         print("说明：本脚本只做字面命中，不判语义；未命中不代表没有问题。")
         sys.exit(0)
     for kind, level, loc, desc, fix in issues:
