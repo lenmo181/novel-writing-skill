@@ -12,10 +12,10 @@ API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图
      --only 用于修复后只重测指定章（省额度）。
 Key 来源: --key 参数 > 环境变量 ZHUQUE_API_KEY。
      Key 在 EdgeOne 控制台 → Makers → Models → API Key 页面创建；每月免费额度 50 万 token。
-判定: ai_pct = labels_ratio["1"] + labels_ratio["2"]（AI + 疑似AI 占比，百分数）
-     ai_pct ≥ threshold（默认50）→ 退出码 1 禁止交付
-     ai_pct ≥ warn（默认30）    → 警告但通过（须按《去AI味手册》过目）
-     否则通过
+判定: human_score = 人工占比×100（百分制「人类分」，100-ai_pct）
+     human_score ≥ threshold（默认90）→ 通过
+     human_score ≥ warn（默认80）    → 警告但通过（须按《去AI味手册》过目）
+     否则 → 退出码 1 禁止交付
 退出码: 0=通过, 1=AI占比超标(禁止交付; 全书=存在超标章), 2=输入/配置错误(文件不存在/无Key),
         3=API或网络错误（单章=未检出≠超标不触发闸门; 全书=存在失败章且无超标章）
 正文口径: 与 check_chapter.py 一致（剥章节标题行与格式行后送检）
@@ -50,15 +50,14 @@ LABEL_NAMES = {0: "人工", 1: "AI", 2: "疑似AI"}
 
 
 def evaluate(labels_ratio, threshold, warn):
-    """从 labels_ratio 算 AI+疑似占比并定级。返回 (ai_pct, level)，level∈pass/warn/fail。"""
-    ai = float(labels_ratio.get("1", 0) or 0)
-    suspect = float(labels_ratio.get("2", 0) or 0)
-    ai_pct = (ai + suspect) * 100
-    if ai_pct >= threshold:
-        return ai_pct, "fail"
-    if ai_pct >= warn:
-        return ai_pct, "warn"
-    return ai_pct, "pass"
+    """人工占比即百分制人类分。返回 (human_score, level)，level∈pass/warn/fail。
+    human_score ≥ threshold(默认90) 通过；warn(默认80)~threshold 警告；< warn 禁止交付。"""
+    human = float(labels_ratio.get("0", 0) or 0) * 100
+    if human < warn:
+        return human, "fail"
+    if human < threshold:
+        return human, "warn"
+    return human, "pass"
 
 
 def call_api(text, key, is_merge, timeout):
@@ -168,10 +167,10 @@ def write_report(path, rnd, rows, threshold, warn):
     lines = [
         f"# 朱雀检测报告（轮次：{rnd} ｜ {time.strftime('%Y-%m-%d %H:%M')}）",
         "",
-        f"参数：阈值{threshold:g}%/警告线{warn:g}% ｜ 送检 {len(rows)} 章 ｜ "
+        f"参数：达标线{threshold:g}分/警告线{warn:g}分（人类分=人工占比，100满分） ｜ 送检 {len(rows)} 章 ｜ "
         f"通过 {n_pass} ｜ 警告 {n_warn} ｜ **超标 {n_fail}** ｜ 失败 {n_err}",
         "",
-        "| 章号 | 标题 | AI% | 疑似% | 人工% | ai_pct | 较上轮 | 结论 |",
+        "| 章号 | 标题 | AI% | 疑似% | 人类分 | ai_pct | 较上轮 | 结论 |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
@@ -258,8 +257,8 @@ def run_book(args, key):
             ratio = data.get("labels_ratio") or {}
             pct, level = evaluate(ratio, args.threshold, args.warn)
             mark = {"fail": "[✗]", "warn": "[!]", "pass": "[✓]"}[level]
-            print(f"{mark} {label}：ai_pct={pct:.1f}%（AI {ratio.get('1', 0) * 100:.1f}"
-                  f"/疑似 {ratio.get('2', 0) * 100:.1f}/人工 {ratio.get('0', 0) * 100:.1f}）")
+            print(f"{mark} {label}：人类分={pct:.1f}（AI {ratio.get('1', 0) * 100:.1f}"
+                  f"/疑似 {ratio.get('2', 0) * 100:.1f}）")
             seg_limit = 3 if level in ("fail", "warn") else 0
             rows.append({
                 "num": num, "title": title or fname, "level": level,
@@ -310,10 +309,10 @@ def main():
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/朱雀检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12），省额度")
     ap.add_argument("--delay", type=float, default=1.0, help="全书模式章节间隔秒数（默认1）")
-    ap.add_argument("--threshold", type=float, default=50,
-                    help="AI+疑似占比硬上限%%（默认50，真源=常量表·六）")
-    ap.add_argument("--warn", type=float, default=30,
-                    help="AI+疑似占比警告线%%（默认30）")
+    ap.add_argument("--threshold", type=float, default=90,
+                    help="人类分硬下限%%（=100-ai_pct，默认90，真源=常量表·六）")
+    ap.add_argument("--warn", type=float, default=80,
+                    help="人类分警告线%%（默认80）")
     ap.add_argument("--segments", type=int, default=5,
                     help="超标/警告时展示 AI 味最重的前 N 个分段（默认5，0=不展示）")
     ap.add_argument("--no-merge", action="store_true",
@@ -359,19 +358,19 @@ def main():
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
     ratio = data.get("labels_ratio") or {}
-    ai_pct, level = evaluate(ratio, args.threshold, args.warn)
+    human_score, level = evaluate(ratio, args.threshold, args.warn)
     ai_r = float(ratio.get("1", 0) or 0) * 100
     su_r = float(ratio.get("2", 0) or 0) * 100
-    hu_r = float(ratio.get("0", 0) or 0) * 100
+    hu_r = human_score
     softmax = data.get("softmax_confidence", "?")
     ratio_c = data.get("ratio_confidence", "?")
     usage = (data.get("makers_models_usage") or data.get("usage") or {}).get("total_tokens", "?")
 
-    print(f"[i] 占比：人工 {hu_r:.1f}% ｜ AI {ai_r:.1f}% ｜ 疑似AI {su_r:.1f}%")
+    print(f"[i] 人类分 {hu_r:.1f}/100（人工占比）｜ AI {ai_r:.1f}% ｜ 疑似AI {su_r:.1f}%")
     print(f"[i] softmax_confidence={softmax}  ratio_confidence={ratio_c}  计费用量={usage} tokens")
 
     if level == "fail":
-        print(f"[✗] AI+疑似占比 {ai_pct:.1f}% ≥ 阈值 {args.threshold:g}% —— 禁止交付")
+        print(f"[✗] 人类分 {hu_r:.1f} < 硬下限 {args.warn:g} —— 禁止交付")
         if args.segments > 0:
             segs = worst_segments(data.get("segment_labels") or [], args.segments)
             if segs:
@@ -379,13 +378,13 @@ def main():
                 for row in segs:
                     print(row)
         print("-" * 46)
-        print(f"结论：朱雀检测未通过（{ai_pct:.1f}% ≥ {args.threshold:g}%）")
-        print(f"摘要：朱雀AI+疑似={ai_pct:.1f}%（AI {ai_r:.1f}/疑似 {su_r:.1f}）人工={hu_r:.1f}%"
-              f" —— 按《去AI味手册》定向改写后重测")
+        print(f"结论：朱雀检测未通过（人类分 {hu_r:.1f} < {args.warn:g}）")
+        print(f"摘要：朱雀人类分={hu_r:.1f}（AI {ai_r:.1f}/疑似 {su_r:.1f}）"
+              f" 达标线={args.threshold:g} —— 按《去AI味手册》定向改写后重测")
         return 1
 
     if level == "warn":
-        print(f"[!] AI+疑似占比 {ai_pct:.1f}%（≥警告线 {args.warn:g}%，<阈值 {args.threshold:g}%）"
+        print(f"[!] 人类分 {hu_r:.1f}（≥警告线 {args.warn:g}，<达标线 {args.threshold:g}）"
               f"—— 通过，但须按《去AI味手册》逐段过目")
         if args.segments > 0:
             segs = worst_segments(data.get("segment_labels") or [], args.segments)
@@ -395,15 +394,15 @@ def main():
                     print(row)
         print("-" * 46)
         print(f"结论：朱雀检测通过（带警告）✓")
-        print(f"摘要：朱雀AI+疑似={ai_pct:.1f}%（AI {ai_r:.1f}/疑似 {su_r:.1f}）人工={hu_r:.1f}%"
-              f" 阈值={args.threshold:g}% —— 人工过目警告分段后可交付")
+        print(f"摘要：朱雀人类分={hu_r:.1f}（AI {ai_r:.1f}/疑似 {su_r:.1f}）"
+              f" 达标线={args.threshold:g} —— 人工过目警告分段后可交付")
         return 0
 
-    print(f"[✓] AI+疑似占比 {ai_pct:.1f}% < 警告线 {args.warn:g}%，机器判定干净")
+    print(f"[✓] 人类分 {hu_r:.1f} ≥ 达标线 {args.threshold:g}，机器判定干净")
     print("-" * 46)
     print("结论：朱雀检测通过 ✓")
-    print(f"摘要：朱雀AI+疑似={ai_pct:.1f}%（AI {ai_r:.1f}/疑似 {su_r:.1f}）人工={hu_r:.1f}%"
-          f" 阈值={args.threshold:g}% —— 可交付")
+    print(f"摘要：朱雀人类分={hu_r:.1f}（AI {ai_r:.1f}/疑似 {su_r:.1f}）"
+          f" 达标线={args.threshold:g} —— 可交付")
     return 0
 
 

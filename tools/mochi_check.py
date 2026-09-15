@@ -9,8 +9,9 @@ mochi_check.py — 网络小说创作技能 v7.7 墨尺本地AI味检测（朱�
 服务: 默认连 http://127.0.0.1:8765。服务没起时：
      设了环境变量 MOCHI_RULER_DIR（墨尺仓库路径）→ 自动启动 server.py；
      没设 → 提示手动启动（cd 墨尺目录 && python server.py）后退出码 2。
-判定: 每章总分 total——total ≥ min（默认6）通过；floor ≤ total < min（默认5-6）警告；
-     total < floor（默认5）→ 退出码 1 禁止交付，按最差指标项定向改写。
+判定: 每章总分 total（0-10）换算百分制人类分 = total×10（与朱雀「人类分≥90」同一条交付线）
+     human ≥ min×10（默认90）通过；floor×10 ≤ human < min×10（默认80-89）警告；
+     human < floor×10（默认<80）→ 退出码 1 禁止交付，按最差指标项定向改写。
 退出码: 0=通过, 1=存在不达标章(禁止交付), 2=输入/配置错误(文件不存在/服务起不来),
         3=分析失败章(服务500等；全书=存在失败章且无不达标章)
 报告: --book 模式落盘 <项目根>/mind/墨尺检测报告.md（轮次/较上轮/待修复清单/最差指标）
@@ -177,7 +178,7 @@ def write_report(path, rnd, rows, floor, min_):
     lines = [
         f"# 墨尺检测报告（轮次：{rnd} ｜ {time.strftime('%Y-%m-%d %H:%M')}）",
         "",
-        f"参数：通过线{min_:g}/硬下限{floor:g}（总分0-10越高越好） ｜ 送检 {len(rows)} 章 ｜ "
+        f"参数：达标线{min_*10:g}分/硬下限{floor*10:g}分（人类分=total×10，100满分） ｜ 送检 {len(rows)} 章 ｜ "
         f"通过 {n_pass} ｜ 警告 {n_warn} ｜ **不达标 {n_fail}** ｜ 失败 {n_err}",
         "",
         "| 章号 | 标题 | 总分 | 真人感 | 人味 | 代入感 | 节奏 | 句法 | 较上轮 | 结论 |",
@@ -260,29 +261,31 @@ def run_single(args):
         print("    注意：未测出 ≠ 不达标，本结论不触发交付闸门；排查后重跑即可")
         return 2 if "不足送检" in error else 3
     lvl = evaluate(row["total"], args.floor, args.min)
+    human = row["total"] * 10
     dims_s = " ｜ ".join(f"{cn} {v:.1f}" for (_, cn), v in zip(DIMS, row["dims"]))
     print(f"[i] 五维：{dims_s}")
+    print(f"[i] 人类分 {human:.0f}/100（total×10）")
     if row["weak"]:
         print(f"[i] 短板指标（低分前{args.top}）：{'、'.join(row['weak'])}")
     if row["violations"]:
         print(f"[!] 合规违规 {row['violations']} 处（详见墨尺网页端）")
     print("-" * 46)
     if lvl == "fail":
-        print(f"[✗] 总分 {row['total']:.1f} < 硬下限 {args.floor:g} —— 禁止交付")
-        print(f"结论：墨尺检测未通过（{row['total']:.1f} < {args.floor:g}）")
-        print(f"摘要：墨尺total={row['total']:.1f}（真人感{row['dims'][0]:.1f}/人味{row['dims'][1]:.1f}"
-              f"/代入{row['dims'][2]:.1f}/节奏{row['dims'][3]:.1f}/句法{row['dims'][4]:.1f}）"
-              f" —— 按短板指标定向改写后重测")
+        print(f"[✗] 人类分 {human:.0f} < 硬下限 {args.floor*10:g} —— 禁止交付")
+        print(f"结论：墨尺检测未通过（人类分 {human:.0f} < {args.floor*10:g}）")
+        print(f"摘要：墨尺人类分={human:.0f}（total={row['total']:.1f}；真人感{row['dims'][0]:.1f}"
+              f"/人味{row['dims'][1]:.1f}/代入{row['dims'][2]:.1f}/节奏{row['dims'][3]:.1f}"
+              f"/句法{row['dims'][4]:.1f}） —— 按短板指标定向改写后重测")
         return 1
     if lvl == "warn":
-        print(f"[!] 总分 {row['total']:.1f}（≥硬下限 {args.floor:g}，<通过线 {args.min:g}）"
+        print(f"[!] 人类分 {human:.0f}（≥硬下限 {args.floor*10:g}，<达标线 {args.min*10:g}）"
               f"—— 通过，但须按短板指标过目")
         print("结论：墨尺检测通过（带警告）✓")
-        print(f"摘要：墨尺total={row['total']:.1f} —— 人工过目短板指标后可交付")
+        print(f"摘要：墨尺人类分={human:.0f}（total={row['total']:.1f}） —— 人工过目短板指标后可交付")
         return 0
-    print(f"[✓] 总分 {row['total']:.1f} ≥ 通过线 {args.min:g}，读感达标")
+    print(f"[✓] 人类分 {human:.0f} ≥ 达标线 {args.min*10:g}，读感达标")
     print("结论：墨尺检测通过 ✓")
-    print(f"摘要：墨尺total={row['total']:.1f} —— 可交付")
+    print(f"摘要：墨尺人类分={human:.0f}（total={row['total']:.1f}） —— 可交付")
     return 0
 
 
@@ -328,8 +331,8 @@ def run_book(args):
         else:
             lvl = evaluate(row["total"], args.floor, args.min)
             mark = {"fail": "[✗]", "warn": "[!]", "pass": "[✓]"}[lvl]
-            print(f"{mark} {label}：total={row['total']:.1f}"
-                  f"（真人感{row['dims'][0]:.1f}/节奏{row['dims'][3]:.1f}）")
+            print(f"{mark} {label}：人类分={row['total']*10:.0f}（total={row['total']:.1f}；"
+                  f"真人感{row['dims'][0]:.1f}/节奏{row['dims'][3]:.1f}）")
             rows.append({"num": num, "title": title or fname, "level": lvl,
                          "total": row["total"], "dims": row["dims"],
                          "prev": prev_map.get(num), "weak": row["weak"], "reused": False})
@@ -367,8 +370,8 @@ def main():
     ap.add_argument("--book", default="", metavar="项目根",
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/墨尺检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12）")
-    ap.add_argument("--min", type=float, default=6, help="总分通过线（默认6，真源=常量表·六）")
-    ap.add_argument("--floor", type=float, default=5, help="总分硬下限（默认5，低于禁止交付）")
+    ap.add_argument("--min", type=float, default=9, help="总分通过线0-10（默认9=人类分90，真源=常量表·六）")
+    ap.add_argument("--floor", type=float, default=8, help="总分硬下限0-10（默认8=人类分80，低于禁止交付）")
     ap.add_argument("--top", type=int, default=5, help="展示最差指标项个数（默认5）")
     ap.add_argument("--url", default=DEFAULT_URL, help="墨尺服务地址（默认 127.0.0.1:8765）")
     ap.add_argument("--delay", type=float, default=0, help="全书模式章节间隔秒数（本地默认0）")
