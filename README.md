@@ -60,6 +60,7 @@ python tools/gen_index.py "<项目根>"     # 生成/更新 mind/章节目录.md
 python tools/conflict_score.py --demo    # 冲突值权重表与算例
 python tools/check_refs.py               # 技能包内引用完整性（退出码 0/1）
 python tools/grep_consistency.py "<项目根>"   # 四类硬矛盾（含推进力打圈D类）告警（退出码恒 0）
+python tools/visualize.py "<项目根>"          # 生成并打开可视化看板 看板.html（总览/章节快照/人物/伏笔/时间线/锚点/检测趋势，--no-open 只生成）
 ```
 
 **朱雀AI检测**（可选，先在 EdgeOne 控制台 → Makers → Models → API Key 创建 Key，每月免费 50 万 token）：
