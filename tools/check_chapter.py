@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.10 章节机械校验脚本
-用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
-                             [--quote chal|straight|any] [--dialog-min 40]
+check_chapter.py — 网络小说创作技能 v7.16 章节机械校验脚本
+用法: python check_chapter.py <章节文件.md|txt> [--min 2100] [--max 2700]
+                             [--quote chal|straight|any] [--dialog-min 25] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤(禁止交付), 2=输入错误(文件不存在/不可读)
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
@@ -11,7 +11,8 @@ check_chapter.py — 网络小说创作技能 v7.10 章节机械校验脚本
     chal     默认。中文弯引号 “ ” ‘ ’ 计入对话；半角直引号与「」判违规（长篇口径）
     straight 半角双引号 " " 计入对话；弯引号与「」判违规（短篇默认，如知乎盐选）
     any      弯引号 + 半角双引号 + 「」 都计入对话；不判任何引号违规（容错口径）
---dialog-min 对话占比下限（百分数），默认 40；短剧剧本口径可传 60
+--dialog-min/--dialog-max 对话占比健康区（百分数），默认 25-50（v7.16，热榜三榜首11章实测 28-51%）；
+    短剧剧本口径传 --dialog-min 60（>=55 时自动豁免上限检查）
 """
 import argparse
 import os
@@ -190,7 +191,7 @@ def count_chars(s):
     return len(COUNTABLE.findall(s))
 
 
-def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
     if not os.path.isfile(path):
         print(f"[✗] 输入错误：找不到章节文件 {path}")
         return 2
@@ -234,15 +235,20 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
     else:
         print(f"[✓] 字数 = {total}（区间 {wmin}-{wmax}）")
 
-    # ── 2 对话占比（引号口径由 --quote 决定，与第6项同源）──
+    # ── 2 对话占比（v7.16：改为区间口径 25-50，热榜实证 28-51%；>=55 剧本口径自动跳过上限）──
     span_re = dialogue_span_re(quote_mode)
     dialog_chars = dialogue_chars(body, span_re)
     ratio = dialog_chars / total * 100 if total else 0
     if ratio < dialog_min:
         failures.append(
             f"对话占比 {ratio:.1f}% < {dialog_min}%（对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
+    elif dialog_min < 55 and dialog_max and ratio > dialog_max:
+        failures.append(
+            f"对话占比 {ratio:.1f}% > 上限 {dialog_max}%（对话剧：热榜实测 28-51%，叙述/动作/心理要占大头）")
+    elif dialog_min < 55 and ratio > dialog_min + 20:
+        warnings.append(f"对话占比 {ratio:.1f}% 偏高（>{dialog_min + 20}% 警告线）——补叙述、动作与内心戏")
     else:
-        print(f"[✓] 对话占比 = {ratio:.1f}%（对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
+        print(f"[✓] 对话占比 = {ratio:.1f}%（健康区 {dialog_min}-{dialog_max}，对话约 {dialog_chars} 字）")
 
     # ── 3 A级禁言词 ──
     a_hits = [(w, body.count(w)) for w in A_LEVEL if w in body]
@@ -313,16 +319,31 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
     else:
         print(f"[✓] 比喻词 {simile_total} 处（限额 {simile_quota}）")
 
-    # ── 9 排版（v6.1）──
+    # ── 9 排版（v7.16：文字墙 160→140 硬卡 + >100 警告，热榜主流最长段≤90）──
     para_lens = [count_chars(ln) for ln in lines]
-    walls = [(i + 1, n) for i, n in enumerate(para_lens) if n > 160]
+    walls = [(i + 1, n) for i, n in enumerate(para_lens) if n > 140]
+    walls_warn = [(i + 1, n) for i, n in enumerate(para_lens) if 100 < n <= 140]
     if walls:
         worst = max(walls, key=lambda x: x[1])
-        failures.append(f"文字墙：{len(walls)} 个段落超160字（最长第{worst[0]}段 {worst[1]} 字）——手机端必须短段")
+        failures.append(f"文字墙：{len(walls)} 个段落超140字（最长第{worst[0]}段 {worst[1]} 字）——手机端必须短段，热榜主流≤90")
     else:
+        if walls_warn:
+            worst_w = max(walls_warn, key=lambda x: x[1])
+            warnings.append(f"长段落 {len(walls_warn)} 个（>100字，最长第{worst_w[0]}段 {worst_w[1]} 字）——热榜几乎无超60字段，能拆就拆")
         print(f"[✓] 排版：最长段落 {max(para_lens) if para_lens else 0} 字，无文字墙")
     one_liners = sum(1 for ln in lines if 0 < count_chars(ln) <= 15)
     print(f"[i] 单句成段 {one_liners} 处（建议≥3处制造节奏重音）")
+
+    # ── v7.16 新增：无引号内心戏（自由间接引语）——热榜人味核心指标 ──
+    # 口径：不带引号的段落，以？/！收尾（主角视角吐槽/反问/咆哮直接成段）
+    inner_voice = [ln for ln in lines if "“" not in ln and count_chars(ln) > 0 and ln.rstrip('。').endswith(("？", "！"))]
+    if len(inner_voice) >= 5:
+        print(f"[✓] 无引号内心戏 {len(inner_voice)} 处（≥5，主角脑子在线）")
+    elif len(inner_voice) >= 3:
+        warnings.append(f"无引号内心戏仅 {len(inner_voice)} 处（<5）——补主角视角吐槽/反问，热榜每章3-10处")
+    else:
+        warnings.append(f"无引号内心戏仅 {len(inner_voice)} 处（<3）——全书AI味重灾区：主角必须脑子在线，参考热榜『别拜了妹子！』式脑内喊话")
+
 
     # ── 警告级：情绪直贴（Show don't tell）──
     tell_hits = [m.group(0) for p in EMOTION_PATTERNS for m in p.finditer(body)]
@@ -394,18 +415,20 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.10（30项中的脚本13项，含章节名规范）",
+        description="章节机械校验 v7.16（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
-               "--dialog-min 默认 40（短剧可传 60）。")
+               "--dialog-min/--dialog-max 默认 25/50（热榜实证 28-51%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
-    ap.add_argument("--min", type=int, default=2500, help="字数下限（默认2500）")
-    ap.add_argument("--max", type=int, default=3000, help="字数上限（默认3000）")
+    ap.add_argument("--min", type=int, default=2100, help="字数下限（默认2100，热榜实证主流2100-2300）")
+    ap.add_argument("--max", type=int, default=2700, help="字数上限（默认2700）")
     ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
                     help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
-    ap.add_argument("--dialog-min", type=int, default=40, dest="dialog_min",
-                    help="对话占比下限%%（默认40；短剧剧本可传60）")
+    ap.add_argument("--dialog-min", type=int, default=25, dest="dialog_min",
+                    help="对话占比下限%%（默认25；短剧剧本传60，>=55时自动豁免上限检查）")
+    ap.add_argument("--dialog-max", type=int, default=50, dest="dialog_max",
+                    help="对话占比上限%%（默认50，热榜实证；传0关闭）")
     args = ap.parse_args()
-    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min))
+    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max))
 
 
 if __name__ == "__main__":
