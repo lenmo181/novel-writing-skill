@@ -1,6 +1,6 @@
 # 网络小说创作技能
 
-> 当前版本：**v7.6**（2026-09-16） · 历史版本见 [`versions/`](versions/)（版本号以 SKILL.md 头部为准）
+> 当前版本：**v7.7**（2026-09-16） · 历史版本见 [`versions/`](versions/)（版本号以 SKILL.md 头部为准）
 
 面向 ZCode / AI 编码助手的网文创作主力技能：把"会写小说"变成**可验证的工程流程**——机械校验脚本硬卡，不过不许交付。
 
@@ -24,6 +24,7 @@
 ├── tools/                         # 全部纯标准库、无第三方依赖
 │   ├── check_chapter.py            # 单章机械校验（12项硬卡 + AI味指数 + --quote/--dialog-min）
 │   ├── zhuque_check.py             # 朱雀AI文本线上检测（可选；阈值判定 + AI味分段定位 + --book全书模式）
+│   ├── mochi_check.py              # 墨尺本地AI味检测（朱雀兜底；0-10分+短板指标 + --book全书模式）
 │   ├── cover_check.py              # 封面机械质检（尺寸/比例/体积/落盘纪律，纯标准库）
 │   ├── gen_index.py                # 扫 书稿/ 生成 mind/章节目录.md（读旧表合并，不覆盖既有值）
 │   ├── check_refs.py               # 技能包内相对引用完整性（悬空路径）
@@ -60,7 +61,7 @@ python tools/check_refs.py               # 技能包内引用完整性（退出�
 python tools/grep_consistency.py "<项目根>"   # 三类硬矛盾告警（退出码恒 0）
 ```
 
-朱雀AI检测（可选，先在 EdgeOne 控制台 → Makers → Models → API Key 创建 Key，每月免费 50 万 token）：
+**朱雀AI检测**（可选，先在 EdgeOne 控制台 → Makers → Models → API Key 创建 Key，每月免费 50 万 token）：
 
 ```bash
 set ZHUQUE_API_KEY=<你的Key>
@@ -70,8 +71,19 @@ python tools/zhuque_check.py --book "<项目根>" --only 3,7-12   # 修复后只
 # 单章/超标自动列 AI 味最重分段供定向改写；未配 Key 不阻塞；退出码 3=API/网络失败不触发闸门
 ```
 
+**墨尺本地检测**（v7.7，朱雀额度用尽的兜底；MIT 纯标准库，零额度零依赖）：
+
+```bash
+git clone https://github.com/yycqyjq/mochi-ruler.git
+setx MOCHI_RULER_DIR <墨尺仓库路径>                      # 配好后脚本自动启动本地服务
+python tools/mochi_check.py "书稿/第001章_章节名.md"      # 单章：总分0-10越高越像真人，<5 禁止交付
+python tools/mochi_check.py --book "<项目根>" --only 3,7-12   # 全书/重测，报告落盘 mind/墨尺检测报告.md
+# 输出短板指标（40项逐项分最低前5）定向改写；服务未起且未配置 → 退出码2不阻塞
+```
+
 ## 版本历史（摘要）
 
+- **v7.7**：接入**墨尺本地AI味检测**（mochi-ruler，MIT 纯标准库）作为朱雀额度用尽的兜底——新增 `tools/mochi_check.py`：total 0-10 **越高越像真人**（<5 禁止交付/5-6 警告/≥6 通过，方向与朱雀相反）+ 短板指标（40 项逐项分最低前 5）交 8 Gate 定向改写；服务自动拉起（MOCHI_RULER_DIR）；`--book` 全书模式与朱雀报告同构（--only 合并上轮）；检测通路降级链：朱雀→墨尺→AI味指数；常量表六扩为「AI味检测（朱雀线上+墨尺本地）」双通路真源
 - **v7.6**：**封面工程化升级**——`references/封面.md` 升为六步执行协议（信息收集→平台定比例→提示词→出图落盘→双层质检→导出上传尺寸）；新增 `tools/cover_check.py`（纯标准库解析 PNG/JPEG 头：比例±2%/分辨率/体积/落盘纪律机械硬卡，番茄 3:4 专项口径）；语义 4 项（文字渲染/题材/构图/安全区）AI 看图核验；重出上限 3 轮；落盘统一 `<项目根>/封面/`（对齐 $story-cover 的 BOOK_DIR）；常量表新增「七、封面平台尺寸」
 - **v7.5**：接入**朱雀AI检测**（腾讯 EdgeOne Makers 内置模型 @makers/zhuque-text）——新增 `tools/zhuque_check.py`：AI+疑似占比阈值判定（≥50% 禁止交付/30-50% 警告）+ AI 味最重分段定位交 8 Gate 定向改写；**全书模式 `--book`**（扫 书稿/ 批量检测，报告落盘 mind/朱雀检测报告.md：轮次/较上轮变化/待修复清单，`--only` 只重测未达标章省额度，重测自动合并上轮数据）+ 修复循环协议（单章重测上限3轮，连续两轮降幅<5个百分点移交人工）；正文口径与 check_chapter.py 一致；退出码 3=API/网络失败不触发闸门；未配 Key 不阻塞（软门禁）；常量表新增「六、朱雀线上检测」，去AI味/审校手册挂流程入口
 - **v7.4**：借鉴开源 **zy-zmc/tianming-skill**（CC BY-NC-SA 4.0，仅借鉴机制、未复制原文）——冲突值量化 / 缓冲章三型 / 峰值禁区 / 钩子载体DNA / 失败码与交付闸门 / 设定库体检 / 文风样本软门禁 / 常量表集中；新增 `references/常量表.md`、`节奏与结构.md`、`体检.md` 与 4 个脚本；校验 26→28 项（脚本12+AI16）；脚本新增 `--quote/--dialog-min` 并修「一丝」计数

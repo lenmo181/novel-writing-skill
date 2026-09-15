@@ -19,7 +19,7 @@ Key 来源: --key 参数 > 环境变量 ZHUQUE_API_KEY。
 退出码: 0=通过, 1=AI占比超标(禁止交付; 全书=存在超标章), 2=输入/配置错误(文件不存在/无Key),
         3=API或网络错误（单章=未检出≠超标不触发闸门; 全书=存在失败章且无超标章）
 正文口径: 与 check_chapter.py 一致（剥章节标题行与格式行后送检）
-阈值真源: references/常量表.md「六、朱雀线上检测」
+阈值真源: references/常量表.md「六、AI味检测（朱雀线上 + 墨尺本地）」
 """
 import argparse
 import json
