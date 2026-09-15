@@ -119,12 +119,17 @@ AI_VOGUE = [
     "心脏漏跳", "呼吸一滞", "像一把刀刺入", "石子投入",
 ]
 
-# 对话提示语（说道类）合计限频
+# 对话提示语（说道类）合计限频（v7.15：上限10→5，补齐轻声/淡淡等漏网变体）
 SPEECH_TAGS = [
     "说道", "问道", "答道", "笑道", "喊道", "冷声道", "沉声道", "淡声道",
     "低声道", "高声道", "喝道", "骂道", "叹道", "喃喃道", "开口道",
     "反问道", "追问道", "接着道", "又道",
+    "轻声道", "淡淡道", "应道", "回道", "嘀咕道", "嘟囔道",
+    "轻声说", "低声说", "小声说", "淡淡说", "沉声说",
 ]
+# 「他/她说：」代词+光杆引导（番茄热榜几乎绝迹的AI指纹，v7.15 新增独立检查）
+# 只抓引导式（他说：“”“她说道。”“他轻声说，”），叙述转述（他说要去/他说话/他说的话）不误伤
+PRONOUN_TAG_RE = re.compile(r"[他她它](?:说道?|[^的话过]{1,3}说)(?:[“：]|[，。][“])")
 
 EMOTION_WORDS = "愤怒悲伤高兴快乐害怕恐惧紧张失望痛苦委屈羞愧尴尬欣慰绝望无奈心疼得意后悔震惊惊讶疑惑茫然"
 EMOTION_PATTERNS = [
@@ -324,12 +329,20 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
     if tell_hits:
         warnings.append(f"情绪直贴{len(tell_hits)}处: " + "、".join(tell_hits[:6]) + "——改为动作/生理反应展示")
 
-    # ── 警告级：对话提示语机械重复 ──
+    # ── 警告级：对话提示语机械重复（v7.15：上限10→5）──
     tag_total = sum(body.count(t) for t in SPEECH_TAGS)
-    if tag_total > 10:
-        warnings.append(f"「说道/问道类」提示语共 {tag_total} 次（>10）——用动作beat替代或省略提示语")
+    if tag_total > 5:
+        warnings.append(f"「说道/道类」提示语共 {tag_total} 次（>5）——按对话归位五式改动作归位段/裸引号")
     else:
-        print(f"[✓] 对话提示语 {tag_total} 次，未机械重复")
+        print(f"[✓] 对话提示语 {tag_total} 次，未超限")
+
+    # ── 警告级：「他/她说：」光杆引导（v7.15 新增）──
+    pronoun_tags = [m.group(0) for m in PRONOUN_TAG_RE.finditer(body)]
+    if len(pronoun_tags) > 2:
+        warnings.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>2，如 " +
+                        "、".join(pronoun_tags[:4]) + "）——番茄热榜几乎绝迹，就地换动作归位段/裸引号")
+    elif pronoun_tags:
+        print(f"[i] 「他/她说：」类引导 {len(pronoun_tags)} 次（≤2 容许）: " + "、".join(pronoun_tags[:4]))
 
     # ── 警告级：高频二字词近距离复用 ──
     hanzi_only = "".join(ch for ch in body if HANZI.match(ch))
