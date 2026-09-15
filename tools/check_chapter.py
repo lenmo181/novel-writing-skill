@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.3 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.4 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2500] [--max 3000]
-只做机器可判定校验（26项中的脚本部分），语义类校验由 AI 对照 mind/ 档案执行。
-退出码: 0=通过, 1=有硬伤
+                             [--quote chal|straight|any] [--dialog-min 40]
+只做机器可判定校验（28项中的脚本12项），语义类校验由 AI 对照 mind/ 档案执行。
+退出码: 0=通过, 1=有硬伤(禁止交付), 2=输入错误(文件不存在/不可读)
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
+
+--quote 引号口径（同时决定"引号违规检测"与"对话占比统计"用哪套引号，二者永不错位）:
+    chal     默认。中文弯引号 “ ” ‘ ’ 计入对话；半角直引号与「」判违规（长篇口径）
+    straight 半角双引号 " " 计入对话；弯引号与「」判违规（短篇默认，如知乎盐选）
+    any      弯引号 + 半角双引号 + 「」 都计入对话；不判任何引号违规（容错口径）
+--dialog-min 对话占比下限（百分数），默认 40；短剧剧本口径可传 60
 """
 import argparse
+import os
 import re
 import sys
 from collections import Counter
@@ -24,7 +32,55 @@ COUNTABLE = re.compile(
     "\u2018\u2019\u201c\u201d\u2014\u2026]"
 )
 HANZI = re.compile("[\u4e00-\u9fff\u3400-\u4dbf]")
-DIALOGUE_SPAN = re.compile("[\u201c\u2018]([^\u201c\u2018\u201d\u2019]*)[\u201d\u2019]")
+
+# 对话区间正则（按 --quote 口径切换，见文件头说明）
+QUOTE_MODES = ("chal", "straight", "any")
+_SPAN_CHAL = re.compile("[\u201c\u2018]([^\u201c\u2018\u201d\u2019]*)[\u201d\u2019]")
+_SPAN_STRAIGHT = re.compile("\"([^\"]*)\"")
+_SPAN_ANY = re.compile(
+    "[\u201c\u2018]([^\u201c\u2018\u201d\u2019]*)[\u201d\u2019]"
+    "|\"([^\"]*)\""
+    "|\u300c([^\u300c\u300d]*)\u300d"
+)
+
+
+def dialogue_span_re(mode):
+    """返回该引号口径下的对话区间正则（必须同时用于违规检测与对话占比统计）。"""
+    if mode == "straight":
+        return _SPAN_STRAIGHT
+    if mode == "any":
+        return _SPAN_ANY
+    return _SPAN_CHAL
+
+
+def dialogue_chars(body, span_re):
+    """累计对话区间内的可计数字符（兼容多分组正则）。"""
+    total = 0
+    for m in span_re.finditer(body):
+        total += count_chars("".join(g for g in m.groups() if g))
+    return total
+
+
+def quote_violations(body, mode):
+    """按口径返回引号违规描述列表（空列表=合规）。"""
+    curl = sum(body.count(c) for c in "\u201c\u201d\u2018\u2019")
+    straight_d = body.count("\"")
+    straight_s = body.count("'")
+    corner = sum(body.count(c) for c in "\u300c\u300d\u300e\u300f")
+    bad = []
+    if mode == "straight":
+        if curl:
+            bad.append(f"弯引号×{curl}")
+        if corner:
+            bad.append(f"直角引号×{corner}")
+    elif mode == "any":
+        pass  # 容错口径：不判引号违规
+    else:  # chal
+        if straight_d or straight_s:
+            bad.append(f"半角直引号×{straight_d + straight_s}")
+        if corner:
+            bad.append(f"直角引号×{corner}")
+    return bad
 
 A_LEVEL = [
     "萦绕", "宛如", "仿佛", "如同", "犹如", "好比", "斑驳", "勾勒", "氤氲", "缱绻",
@@ -121,8 +177,15 @@ def count_chars(s):
     return len(COUNTABLE.findall(s))
 
 
-def check(path, wmin, wmax):
-    text = load_text(path)
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=40):
+    if not os.path.isfile(path):
+        print(f"[✗] 输入错误：找不到章节文件 {path}")
+        return 2
+    try:
+        text = load_text(path)
+    except OSError as e:
+        print(f"[✗] 输入错误：无法读取 {path}（{e}）")
+        return 2
     lines, dropped = body_lines(text)
     body = "\n".join(lines)
     failures, warnings = [], []
@@ -136,13 +199,15 @@ def check(path, wmin, wmax):
     else:
         print(f"[✓] 字数 = {total}（区间 {wmin}-{wmax}）")
 
-    # ── 2 对话占比 ──
-    dialog_chars = sum(count_chars(m) for m in DIALOGUE_SPAN.findall(body))
+    # ── 2 对话占比（引号口径由 --quote 决定，与第6项同源）──
+    span_re = dialogue_span_re(quote_mode)
+    dialog_chars = dialogue_chars(body, span_re)
     ratio = dialog_chars / total * 100 if total else 0
-    if ratio < 40:
-        failures.append(f"对话占比 {ratio:.1f}% < 40%（对话约 {dialog_chars} 字）")
+    if ratio < dialog_min:
+        failures.append(
+            f"对话占比 {ratio:.1f}% < {dialog_min}%（对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
     else:
-        print(f"[✓] 对话占比 = {ratio:.1f}%（对话约 {dialog_chars} 字）")
+        print(f"[✓] 对话占比 = {ratio:.1f}%（对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
 
     # ── 3 A级禁言词 ──
     a_hits = [(w, body.count(w)) for w in A_LEVEL if w in body]
@@ -165,21 +230,28 @@ def check(path, wmin, wmax):
     else:
         print(f"[✓] 破折号—— = {dash} 次")
 
-    # ── 6 引号规范 ──
-    straight = sum(body.count(c) for c in "\"'")
-    corner = sum(body.count(c) for c in "「」『』")
-    if straight or corner:
-        failures.append(f"引号违规：半角直引号×{straight}，直角引号×{corner}（必须用弯引号）")
+    # ── 6 引号规范（口径由 --quote 决定，与第2项同源）──
+    q_bad = quote_violations(body, quote_mode)
+    if q_bad:
+        failures.append(f"引号违规（口径 {quote_mode}）：" + "、".join(q_bad))
     else:
-        print("[✓] 引号规范（中文弯引号）")
+        print(f"[✓] 引号规范（口径 {quote_mode}）")
 
     # ── 7 格式残留 ──
     fmt_bad = [d for d in dropped if d.startswith("格式行")]
     if fmt_bad:
         failures.append(f"检测到格式残留（{len(fmt_bad)}行，如: {fmt_bad[0]}）")
-    quotes_balanced = body.count("\u201c") == body.count("\u201d")
-    if not quotes_balanced:
-        warnings.append(f"弯引号不配对：左 {body.count(chr(0x201c))} / 右 {body.count(chr(0x201d))}")
+    if quote_mode == "straight":
+        n_half = body.count("\"")
+        quotes_balanced = n_half % 2 == 0
+        if not quotes_balanced:
+            warnings.append(f"半角双引号不配对：共 {n_half} 个")
+    elif quote_mode == "any":
+        quotes_balanced = True
+    else:
+        quotes_balanced = body.count("\u201c") == body.count("\u201d")
+        if not quotes_balanced:
+            warnings.append(f"弯引号不配对：左 {body.count(chr(0x201c))} / 右 {body.count(chr(0x201d))}")
     if not fmt_bad and quotes_balanced:
         print("[✓] 无格式残留")
 
@@ -189,8 +261,9 @@ def check(path, wmin, wmax):
         failures.append("AI套话超频(≥3): " + "、".join(f"{w}×{n}" for w, n in c_hits))
     else:
         print("[✓] AI套话均在限额内")
-    if body.count("一丝") > 2:
-        warnings.append(f"「一丝」出现 {body.count('丝')} 次级联（'一丝'×{body.count('一丝')}，>2 建议删减）")
+    silk_n = body.count("一丝")
+    if silk_n > 2:
+        warnings.append(f"「一丝」出现 {silk_n} 次（>2），建议删减")
 
     # ── v7.3：AI式意象表达（出现即警告）──
     v_hits = [(w, body.count(w)) for w in AI_VOGUE if w in body]
@@ -269,20 +342,27 @@ def check(path, wmin, wmax):
     print("-" * 46)
     if failures:
         print(f"结论：校验未通过（{len(failures)} 项硬伤，{len(warnings)} 项警告）")
-        print(f"摘要：字数={total} 对话占比={ratio:.1f}% —— 禁止交付，先修复再跑本脚本")
+        print(f"摘要：字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} —— 禁止交付，先修复再跑本脚本")
         return 1
     print(f"结论：机械校验通过 ✓（另有 {len(warnings)} 项警告需人工过目）")
-    print(f"摘要：字数={total} 对话占比={ratio:.1f}% A级=0 套话=0")
+    print(f"摘要：字数={total} 对话占比={ratio:.1f}% 引号口径={quote_mode} A级=0 套话=0")
     return 0
 
 
 def main():
-    ap = argparse.ArgumentParser(description="章节机械校验 v7.3")
+    ap = argparse.ArgumentParser(
+        description="章节机械校验 v7.4（28项中的脚本12项）",
+        epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
+               "--dialog-min 默认 40（短剧可传 60）。")
     ap.add_argument("file")
-    ap.add_argument("--min", type=int, default=2500)
-    ap.add_argument("--max", type=int, default=3000)
+    ap.add_argument("--min", type=int, default=2500, help="字数下限（默认2500）")
+    ap.add_argument("--max", type=int, default=3000, help="字数上限（默认3000）")
+    ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
+                    help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
+    ap.add_argument("--dialog-min", type=int, default=40, dest="dialog_min",
+                    help="对话占比下限%%（默认40；短剧剧本可传60）")
     args = ap.parse_args()
-    sys.exit(check(args.file, args.min, args.max))
+    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min))
 
 
 if __name__ == "__main__":
