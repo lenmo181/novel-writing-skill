@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.17 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.18 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2100] [--max 2700]
                              [--quote chal|straight|any] [--dialog-min 25] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -131,6 +131,9 @@ SPEECH_TAGS = [
 # 「他/她说：」代词+光杆引导（番茄热榜几乎绝迹的AI指纹，v7.15 新增独立检查）
 # 只抓引导式（他说：“”“她说道。”“他轻声说，”），叙述转述（他说要去/他说话/他说的话）不误伤
 PRONOUN_TAG_RE = re.compile(r"[他她它](?:说道?|[^的话过]{1,3}说)(?:[“：]|[，。][“])")
+# v7.18 补检：行尾后缀式「”他说。」——v7.17.1 批量修复实证后缀式与前缀式同源泛滥（湘西诡闻107章209处），
+# 修饰字符集与 fix_said_tags.py MOD_CH 同源（排除，的话着 防叙述误伤），≤4 字防抓长动作句
+PRONOUN_TAG_SUFFIX_RE = re.compile(r"”\s*[他她它][^“”，。！？\n的话着]{0,4}说道?[，。：]?\s*$")
 
 EMOTION_WORDS = "愤怒悲伤高兴快乐害怕恐惧紧张失望痛苦委屈羞愧尴尬欣慰绝望无奈心疼得意后悔震惊惊讶疑惑茫然"
 EMOTION_PATTERNS = [
@@ -193,7 +196,7 @@ def count_chars(s):
     return len(COUNTABLE.findall(s))
 
 
-def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     if not os.path.isfile(path):
         print(f"[✗] 输入错误：找不到章节文件 {path}")
         return 2
@@ -309,7 +312,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
         print("[✓] AI套话均在限额内")
     silk_n = body.count("一丝")
     if silk_n > 2:
-        warnings.append(f"「一丝」出现 {silk_n} 次（>2），建议删减")
+        failures.append(f"「一丝」出现 {silk_n} 次（>2 硬卡，常量表·二）——删到 ≤2，套话「眼中闪过一丝」已另在AI套话库")
 
     # ── v7.3：AI式意象表达（出现即警告）──
     v_hits = [(w, body.count(w)) for w in AI_VOGUE if w in body]
@@ -362,8 +365,9 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
     else:
         print(f"[✓] 对话提示语 {tag_total} 次，未超限")
 
-    # ── 「他/她说：」光杆引导（v7.17 分级：≤2 容许 / 3-5 警告 / >5 硬卡）──
+    # ── 「他/她说：」光杆引导（v7.17 分级：≤2 容许 / 3-5 警告 / >5 硬卡；v7.18 并入后缀式「”他说。」）──
     pronoun_tags = [m.group(0) for m in PRONOUN_TAG_RE.finditer(body)]
+    pronoun_tags += [m.group(0) for m in PRONOUN_TAG_SUFFIX_RE.finditer(body)]
     if len(pronoun_tags) > 5:
         failures.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>5 硬卡）——代词+光杆说贴引号=热榜绝迹的AI指纹，按对话归位五式就地重写")
     elif len(pronoun_tags) > 2:
@@ -422,7 +426,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=40, dialog_max=50):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.17（30项中的脚本13项，含章节名规范）",
+        description="章节机械校验 v7.18（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min/--dialog-max 默认 25/50（热榜实证 28-51%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")

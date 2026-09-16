@@ -12,7 +12,7 @@ fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.1
   1) 光杆前缀「他说，“Q”」「他说：“Q”」→ 删标签留引号
   2) 带修饰语「他压低声音说，“Q”」→「他压低声音。“Q”」（说转句号，零信息损失）
   3) 独立标签行「他又说。」→ 删行（结构词又/再/接着视同光杆）；带修饰语则转动作句保留
-  4) 后缀「”他说。」→ 删后缀
+  4) 后缀「”他说。」→ 删后缀；带修饰语「”他压低声音说道。」→「”他压低声音。」（说道转句号，修饰语保留）
 退出码: 0=完成
 """
 import argparse
@@ -68,8 +68,15 @@ def process_line(ln, stat):
             continue
         m = END_TAG.search(s)
         if m:
-            s = s[:m.start(1) + 1]
-            stat[1] += 1
+            mod = m.group(3)
+            if mod and mod not in STRUCT:
+                # 带修饰语：修饰语保留为动作句（零信息损失，同规则2说转句号）
+                out.append(s[:m.start(1) + 1] + m.group(2) + mod + "。")
+                stat[3] += 1
+            else:
+                out.append(s[:m.start(1) + 1])
+                stat[1] += 1
+            continue
         m = LINE_TAG.match(s)
         if m:
             mod = m.group(2)
@@ -110,10 +117,20 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
     if do_walls:
         parts = []
         for ln in text.split(NL):
-            if len(ln) > 140 and "“" not in ln:
+            if len(ln) > 140:
+                # 句界切点必须在引号span之外（引号感知，防拆断对白）
+                outside = set()
+                in_q = False
+                for i, ch in enumerate(ln):
+                    if ch == "“":
+                        in_q = True
+                    elif ch == "”":
+                        in_q = False
+                    elif not in_q:
+                        outside.add(i)
                 mid = len(ln) // 2
                 cuts = [m.end() for m in re.finditer(r"[。！？；]", ln)
-                        if abs(m.end() - mid) <= 60]
+                        if m.end() in outside and abs(m.end() - mid) <= 60]
                 if cuts:
                     cut = min(cuts, key=lambda x: abs(x - mid))
                     parts.append(ln[:cut])
