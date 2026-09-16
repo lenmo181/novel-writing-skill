@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.18 章节机械校验脚本
-用法: python check_chapter.py <章节文件.md|txt> [--min 2100] [--max 2700]
-                             [--quote chal|straight|any] [--dialog-min 25] [--dialog-max 50]
+check_chapter.py — 网络小说创作技能 v7.19 章节机械校验脚本
+用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
+                             [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
 退出码: 0=通过, 1=有硬伤(禁止交付), 2=输入错误(文件不存在/不可读)
 输出分级: [✗] 硬伤(禁止交付) / [!] 警告(通过但必须人工过目) / [i] 信息
@@ -11,7 +11,8 @@ check_chapter.py — 网络小说创作技能 v7.18 章节机械校验脚本
     chal     默认。中文弯引号 “ ” ‘ ’ 计入对话；半角直引号与「」判违规（长篇口径）
     straight 半角双引号 " " 计入对话；弯引号与「」判违规（短篇默认，如知乎盐选）
     any      弯引号 + 半角双引号 + 「」 都计入对话；不判任何引号违规（容错口径）
---dialog-min/--dialog-max 对话占比健康区（百分数），默认 25-50（v7.16，热榜三榜首11章实测 28-51%）；
+--dialog-min/--dialog-max 对话占比区间（百分数），默认 15-50（v7.19：热榜5榜5书16章全章
+    span口径实测 10-49%，<15 硬卡、15-25 警告、25-50 健康指导区）；
     短剧剧本口径传 --dialog-min 60（>=55 时自动豁免上限检查）
 """
 import argparse
@@ -219,7 +220,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
         title = TITLE_SEPARATORS_RE.sub("", (pm.group(1) if pm else "").strip())
         t_len = count_chars(title)
         if not title:
-            failures.append("章节名缺失：标题行只有章号没有题名（如「第3章」）——章名是目录页的一秒钩子，按《章节名规范》章名四式补起")
+            failures.append("章节名缺失：标题行只有章号没有题名（如「第3章」）——章名是目录页的一秒钩子，按《章节名规范》章名五式补起")
         elif t_len < TITLE_MIN:
             failures.append(f"章节名「{title}」仅 {t_len} 字（<{TITLE_MIN}），无信息量——按《章节名规范》重起")
         elif title in GENERIC_TITLES:
@@ -240,20 +241,23 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     else:
         print(f"[✓] 字数 = {total}（区间 {wmin}-{wmax}）")
 
-    # ── 2 对话占比（v7.16：改为区间口径 25-50，热榜实证 28-51%；>=55 剧本口径自动跳过上限）──
+    # ── 2 对话占比（v7.19：<15 硬卡 / 15-25 警告 / 25-50 健康指导区 / >50 硬卡；
+    #    依据热榜5榜5书16章全章 span 口径实测 10-49%；>=55 剧本口径自动跳过上限）──
     span_re = dialogue_span_re(quote_mode)
     dialog_chars = dialogue_chars(body, span_re)
     ratio = dialog_chars / total * 100 if total else 0
     if ratio < dialog_min:
         failures.append(
-            f"对话占比 {ratio:.1f}% < {dialog_min}%（对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
+            f"对话占比 {ratio:.1f}% < {dialog_min}%（硬卡下限；对话约 {dialog_chars} 字，引号口径 {quote_mode}）")
     elif dialog_min < 55 and dialog_max and ratio > dialog_max:
         failures.append(
-            f"对话占比 {ratio:.1f}% > 上限 {dialog_max}%（对话剧：热榜实测 28-51%，叙述/动作/心理要占大头）")
-    elif dialog_min < 55 and ratio > dialog_min + 20:
-        warnings.append(f"对话占比 {ratio:.1f}% 偏高（>{dialog_min + 20}% 警告线）——补叙述、动作与内心戏")
+            f"对话占比 {ratio:.1f}% > 上限 {dialog_max}%（对话剧：叙述/动作/心理要占大头）")
+    elif dialog_min < 55 and ratio < 25:
+        warnings.append(f"对话占比 {ratio:.1f}% 偏少（{dialog_min}-25% 警告区，健康指导 25-50%）——热榜悬疑/说书体偶见，确认非注水即可")
+    elif dialog_min < 55 and ratio > dialog_max - 5:
+        warnings.append(f"对话占比 {ratio:.1f}% 偏高（>{dialog_max - 5}% 警告线）——补叙述、动作与内心戏")
     else:
-        print(f"[✓] 对话占比 = {ratio:.1f}%（健康区 {dialog_min}-{dialog_max}，对话约 {dialog_chars} 字）")
+        print(f"[✓] 对话占比 = {ratio:.1f}%（健康指导区 25-50，硬卡线 {dialog_min}-{dialog_max}，对话约 {dialog_chars} 字）")
 
     # ── 3 A级禁言词 ──
     a_hits = [(w, body.count(w)) for w in A_LEVEL if w in body]
@@ -361,7 +365,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     # ── 警告级：对话提示语机械重复（v7.15：上限10→5）──
     tag_total = sum(body.count(t) for t in SPEECH_TAGS)
     if tag_total > 5:
-        warnings.append(f"「说道/道类」提示语共 {tag_total} 次（>5）——按对话归位五式改动作归位段/裸引号")
+        warnings.append(f"「说道/道类」提示语共 {tag_total} 次（>5）——按对话归位六式改动作归位段/裸引号")
     else:
         print(f"[✓] 对话提示语 {tag_total} 次，未超限")
 
@@ -369,7 +373,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     pronoun_tags = [m.group(0) for m in PRONOUN_TAG_RE.finditer(body)]
     pronoun_tags += [m.group(0) for m in PRONOUN_TAG_SUFFIX_RE.finditer(body)]
     if len(pronoun_tags) > 5:
-        failures.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>5 硬卡）——代词+光杆说贴引号=热榜绝迹的AI指纹，按对话归位五式就地重写")
+        failures.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（>5 硬卡）——代词+光杆说贴引号=热榜绝迹的AI指纹，按对话归位六式就地重写")
     elif len(pronoun_tags) > 2:
         warnings.append(f"「他/她说：」类光杆引导共 {len(pronoun_tags)} 次（3-5 警告，如 " +
                         "、".join(pronoun_tags[:4]) + "）——番茄热榜几乎绝迹，就地换动作归位段/裸引号")
@@ -426,16 +430,16 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.18（30项中的脚本13项，含章节名规范）",
+        description="章节机械校验 v7.19（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
-               "--dialog-min/--dialog-max 默认 25/50（热榜实证 28-51%%；>=55 剧本口径自动豁免上限）。")
+               "--dialog-min/--dialog-max 默认 15/50（v7.19 热榜实证 10-49%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
-    ap.add_argument("--min", type=int, default=2100, help="字数下限（默认2100，热榜实证主流2100-2300）")
-    ap.add_argument("--max", type=int, default=2700, help="字数上限（默认2700）")
+    ap.add_argument("--min", type=int, default=2000, help="字数下限（默认2000，v7.19 热榜40章样本主流2000-2300）")
+    ap.add_argument("--max", type=int, default=2500, help="字数上限（默认2500）")
     ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
                     help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
-    ap.add_argument("--dialog-min", type=int, default=25, dest="dialog_min",
-                    help="对话占比下限%%（默认25；短剧剧本传60，>=55时自动豁免上限检查）")
+    ap.add_argument("--dialog-min", type=int, default=15, dest="dialog_min",
+                    help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查）")
     ap.add_argument("--dialog-max", type=int, default=50, dest="dialog_max",
                     help="对话占比上限%%（默认50，热榜实证；传0关闭）")
     args = ap.parse_args()
