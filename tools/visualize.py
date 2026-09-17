@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-visualize.py — 小说项目可视化看板生成器（v7.12，纯标准库）
+visualize.py — 小说项目可视化看板生成器（v7.22，纯标准库）
 
 扫 <项目根>/书稿/ + mind/ 全部档案，生成单文件离线看板 <项目根>/看板.html
-（记忆中心式布局：总览/章节快照/人物状态/伏笔追踪/时间线/事件锚点/检测报告/档案库）。
+（记忆中心式布局：总览/正文阅读/章节快照/人物状态/伏笔追踪/时间线/事件锚点/检测报告/档案库）。
+v7.22 新增正文阅读模式：全部章节正文内嵌（按章懒渲染），支持续读记忆（localStorage）、
+上一章/下一章（按钮+←→键盘）、字号调节、纸张/夜间/白底三主题、阅读进度条、全文搜索跳转、移动端适配。
 设计借鉴 QMAI 记忆中心与 awesome-novel-agent 节奏预警，实现为本技能自有轻量版。
 
 用法：
@@ -63,8 +65,31 @@ def table_with_header(text, *keywords):
     return []
 
 
+def chapter_paras(txt):
+    """章正文 → 段落列表：剥章题行（# 前缀或裸「第X章 …」两种格式），按空行分段，段内换行直接拼接。"""
+    lines = txt.splitlines()
+    while lines and not lines[0].strip():
+        lines = lines[1:]
+    if lines:
+        first = lines[0].strip()
+        if first.startswith("#"):
+            lines = lines[1:]
+        elif re.match(r"^第[0-9０-９一二三四五六七八九十百千两]+\s*章", first) and len(first) <= 40:
+            lines = lines[1:]  # 无 # 前缀的裸章题行，剥掉防正文首段重复章名
+    paras, cur = [], []
+    for ln in lines:
+        if ln.strip():
+            cur.append(ln.strip())
+        elif cur:
+            paras.append("".join(cur))
+            cur = []
+    if cur:
+        paras.append("".join(cur))
+    return paras
+
+
 def scan_chapters(root):
-    """书稿/ 章文件 → [{no, title, file, chars}]"""
+    """书稿/ 章文件 → [{no, title, file, chars, paras}]（paras=内嵌正文段落，v7.22）"""
     out = []
     pat = re.compile(r"^第(\d+)章_(.+)\.md$")
     for p in sorted(glob.glob(os.path.join(root, "书稿", "第*章_*.md"))):
@@ -74,7 +99,8 @@ def scan_chapters(root):
         txt = read_text(p)
         chars = len(re.sub(r"\s", "", txt))
         out.append({"no": int(m.group(1)), "title": m.group(2),
-                    "file": os.path.basename(p), "chars": chars})
+                    "file": os.path.basename(p), "chars": chars,
+                    "paras": chapter_paras(txt)})
     return out
 
 
@@ -280,8 +306,36 @@ th{color:var(--sub);font-weight:600;background:#fafbfc;white-space:nowrap}
 .tl .item{position:relative;padding-bottom:14px}
 .tl .item::before{content:"";position:absolute;left:-26px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--acc);border:2px solid #fff;box-shadow:0 0 0 1px var(--line)}
 pre.raw{white-space:pre-wrap;word-break:break-word;font:12px/1.7 Consolas,monospace;background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:14px;max-height:70vh;overflow:auto}
+#rdProg{position:fixed;top:0;left:0;height:3px;background:var(--acc);z-index:99;width:0}
+.rdbar{position:sticky;top:0;z-index:9;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rdbar select{max-width:300px;margin:0}
+.rdbar .sp{flex:1}
+.btn{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:5px 11px;font-size:13px;cursor:pointer;color:var(--ink);white-space:nowrap}
+.btn:hover{border-color:var(--acc);color:var(--acc)}
+.rdwrap{max-width:800px;margin:0 auto}
+.rdtitle{font-size:24px;font-weight:700;text-align:center;margin:0 0 4px;font-family:Georgia,"Noto Serif SC","Source Han Serif SC",SimSun,serif}
+.rdmeta{color:var(--sub);font-size:12px;text-align:center;margin:2px 0 22px}
+.rdbody{font-family:Georgia,"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,serif;font-size:19px;line-height:1.95;letter-spacing:.015em;border-radius:12px;padding:26px 32px 22px;border:1px solid var(--line)}
+.rdbody p{text-indent:2em;margin:0 0 .35em;min-height:1em}
+.rddata[data-thm="paper"] .rdbody{background:#f6f1e5;border-color:#e7ddc6;color:#4a3f2f}
+.rddata[data-thm="night"] .rdbody{background:#181a1f;border-color:#262932;color:#c6cbd2}
+.rddata[data-thm="night"] .rdtitle{color:#e8eaee}
+.rddata[data-thm="night"] .rdmeta{color:#8b919e}
+.rddata[data-thm="plain"] .rdbody{background:var(--card);color:var(--ink)}
+.rdfoot{display:flex;gap:10px;margin:18px 0 8px}
+.rdfoot button{flex:1;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:14px;cursor:pointer;color:var(--ink)}
+.rdfoot button:hover:not(:disabled){border-color:var(--acc);color:var(--acc)}
+.rdfoot button:disabled{opacity:.4;cursor:default}
+mark{background:#ffe9a8;color:inherit;padding:0 1px;border-radius:2px}
+.flashp{animation:rdflash 2.4s ease-out}
+@keyframes rdflash{0%{background:#fff0b8}100%{background:transparent}}
+.rdres{margin:10px 0 4px}
+.rdres .card{padding:10px 14px;cursor:pointer;margin-bottom:8px}
+.rdres .card:hover{border-color:var(--acc)}
 footer{color:var(--sub);font-size:11px;margin-top:26px}
+@media(max-width:900px){body{display:block}nav{width:auto;height:auto;position:static;display:flex;align-items:center;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px 10px;gap:2px}nav h1{display:none}nav a{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;padding:7px 10px;margin:0;flex:none}nav a .n{flex:none}main{padding:14px 12px;max-width:none}.rdbody{padding:20px 16px}.rdtitle{font-size:21px}.rdbar select{max-width:170px}}
 </style></head><body>
+<div id="rdProg"></div>
 <nav><h1 id="bkTitle"></h1><div id="nav"></div></nav>
 <main id="main"></main>
 <script>
@@ -331,6 +385,71 @@ function chart(){
 }
 const anchorsOf=no=>D.anchors.filter(a=>a.no===no);
 const tlOf=no=>D.timeline.find(t=>t.no===no);
+// ---------- 正文阅读器（v7.22）：续读记忆/翻章/主题/字号/全文搜索 ----------
+const THEME_NAMES={paper:"纸张",night:"夜间",plain:"白底"};
+const RDKEY="kbRead::"+D.root;
+let RD={cur:null,pct:0,fs:19,thm:"paper"};
+try{Object.assign(RD,JSON.parse(localStorage.getItem(RDKEY)||"{}"))}catch(e){}
+let RD_ON=false,rdSaveT=0;
+function rdSave(){clearTimeout(rdSaveT);rdSaveT=setTimeout(()=>{try{localStorage.setItem(RDKEY,JSON.stringify(RD))}catch(e){}},300)}
+function openCh(no,anchor,restore){
+  if(!D.chapters.length)return;
+  const i=Math.max(0,D.chapters.findIndex(c=>c.no===no));
+  const c=D.chapters[i],prev=D.chapters[i-1],next=D.chapters[i+1];
+  RD.cur=c.no;
+  const sel=document.getElementById("rdSel");if(sel)sel.value=String(i);
+  const v=document.getElementById("rdView");
+  const metas=[c.type?`<span class="badge t">${esc(c.type)}</span>`:"",scoreBadge(c.no),
+    `<span class="badge">${c.chars||0}字</span>`,c.date?`<span class="badge">${esc(c.date)}</span>`:""].join("");
+  v.innerHTML=`<div class="rdbody"><div class="rdtitle">第${c.no}章 ${esc(c.title)}</div>
+    <div class="rdmeta">${metas}<div style="margin-top:4px">本书进度 第${i+1}/${D.chapters.length}章</div></div>
+    ${c.paras&&c.paras.length?c.paras.map((p,j)=>`<p id="rp${j}">${esc(p)}</p>`).join(""):"<div class='empty'>本章正文为空</div>"}</div>
+    <div class="rdfoot"><button ${prev?"":"disabled"} onclick="rdGo(${prev?prev.no:0})">← 上一章${prev?` · 第${prev.no}章`:""}</button>
+    <button ${next?"":"disabled"} onclick="rdGo(${next?next.no:0})">${next?`下一章 · 第${next.no}章`:"已是最后一章"} →</button></div>`;
+  v.dataset.thm=RD.thm;
+  v.querySelector(".rdbody").style.fontSize=RD.fs+"px";
+  if(anchor!=null){const el=document.getElementById("rp"+anchor);
+    if(el){el.scrollIntoView();el.classList.add("flashp");}}
+  else if(RD_ON&&restore&&RD.pct>0.02&&RD.pct<0.995)
+    window.scrollTo(0,(document.body.scrollHeight-innerHeight)*RD.pct);
+  else if(RD_ON)window.scrollTo(0,0);
+  rdSave();
+}
+function rdGo(no){if(no==null)return;RD.pct=0;openCh(no);}
+function rdNext(d){const i=D.chapters.findIndex(c=>c.no===RD.cur),j=i+d;
+  if(i<0||j<0||j>=D.chapters.length)return;rdGo(D.chapters[j].no);}
+function rdFs(d){RD.fs=Math.min(26,Math.max(14,RD.fs+d));
+  const b=document.querySelector("#rdView .rdbody");if(b)b.style.fontSize=RD.fs+"px";rdSave();}
+function rdThm(){RD.thm={paper:"night",night:"plain",plain:"paper"}[RD.thm]||"paper";
+  document.getElementById("rdView").dataset.thm=RD.thm;
+  document.getElementById("rdThmBtn").textContent="主题·"+THEME_NAMES[RD.thm];rdSave();}
+function rdJump(no,pi){go(RD_I);openCh(no,pi!=null?pi:null,pi==null);}
+function rdCont(){go(RD_I);openCh(RD.cur!=null?RD.cur:D.chapters[0].no,null,true);}
+function rdSearch(){
+  const q=(document.getElementById("rdQ").value||"").trim(),box=document.getElementById("rdRes");
+  if(!q){box.innerHTML="";return}
+  const hits=[];let truncated=false;
+  outer:for(const c of D.chapters){const ps=c.paras||[];
+    for(let i=0;i<ps.length;i++){const p=ps[i],lo=p.toLowerCase(),at=lo.indexOf(q.toLowerCase());
+      if(at<0)continue;
+      const s=Math.max(0,at-16),e=Math.min(p.length,at+q.length+34);
+      const snip=(s>0?"…":"")+esc(p.slice(s,at))+"<mark>"+esc(p.slice(at,at+q.length))+"</mark>"+esc(p.slice(at+q.length,e))+(e<p.length?"…":"");
+      hits.push(`<div class="card" onclick="rdJump(${c.no},${i})"><span class="badge t">第${c.no}章</span> <b>${esc(c.title)}</b> <span class="muted">¶${i+1}</span><div style="margin-top:3px">${snip}</div></div>`);
+      if(hits.length>=200){truncated=true;break outer;}}}
+  box.className="rdres";
+  box.innerHTML=hits.length?`<div class="muted" style="margin-bottom:6px">命中 ${hits.length} 处${truncated?"（达上限已截断，可换更具体的词）":""}，点击任意结果跳转正文</div>`+hits.join("")
+    :`<div class="empty">全书未找到「${esc(q)}」</div>`;
+}
+addEventListener("scroll",()=>{const bar=document.getElementById("rdProg");
+  if(!bar)return;
+  if(!RD_ON){bar.style.width="0";return}
+  const h=document.body.scrollHeight-innerHeight,p=h>0?Math.min(1,scrollY/h):0;
+  bar.style.width=(p*100).toFixed(1)+"%";RD.pct=p;rdSave();
+},{passive:true});
+addEventListener("keydown",e=>{if(!RD_ON)return;
+  const tag=(e.target.tagName||"").toLowerCase();
+  if(tag==="input"||tag==="select"||tag==="textarea")return;
+  if(e.key==="ArrowRight")rdNext(1);else if(e.key==="ArrowLeft")rdNext(-1);});
 const SECTIONS=[
  {id:"ov",name:"总览",f:()=>{
    const chs=D.chapters,total=chs.reduce((s,c)=>s+(c.chars||0),0),last=chs[chs.length-1];
@@ -343,15 +462,32 @@ const SECTIONS=[
     <div class="stat"><span>朱雀最新</span><b style="color:${lz?(lz[1]>=90?"var(--ok)":lz[1]>=80?"var(--warn)":"var(--bad)"):"var(--sub)"}">${lz?lz[1]:"—"}</b></div>
     <div class="stat"><span>伏笔 推进中/未埋</span><b>${fb.推进中||0} / ${fb.未埋||0}</b></div>
     <div class="stat"><span>事件锚点</span><b>${D.anchors.length}</b></div></div>`
+   +(chs.length?`<div class="card" style="display:flex;align-items:center;gap:14px"><div style="flex:1;min-width:0"><h3>📖 ${RD.cur!=null&&chs.some(c=>c.no===RD.cur)?`继续阅读 · 第${RD.cur}章 ${esc((chs.find(c=>c.no===RD.cur)||{}).title||"")}`:`开始阅读 · 第${chs[0].no}章 ${esc(chs[0].title)}`}</h3><div class="muted">${RD.cur!=null&&chs.some(c=>c.no===RD.cur)?"看板记住了上次的章节和位置，点击接着读":"打开正文阅读模式：翻章/字号/护眼主题/全文搜索"}</div></div><button class="btn" style="padding:10px 18px;font-size:15px" onclick="rdCont()">${RD.cur!=null&&chs.some(c=>c.no===RD.cur)?"继续阅读 →":"开始阅读 →"}</button></div>`:"")
    +(D.rhythm_warn.length?`<div class="warnbox">⚖ 节奏预警：${D.rhythm_warn.map(esc).join("；")}</div>`:"")
    +`<div class="card"><h3>朱雀人类分走势</h3>${chart()}</div>`
    +(D.decisions.length?`<div class="card"><h3>最新锁定决策</h3>${D.decisions.slice(-3).reverse().map(d=>`<div class="kv"><span class="k">${esc(d.date)}</span>${bold(d.decision)} <span class="muted">（${esc(d.source)}）</span></div>`).join("")}</div>`:"");
+ }},
+ {id:"rd",name:"正文阅读",n:D.chapters.length,f:()=>{
+   if(!D.chapters.length)return "<div class='empty'>书稿/ 下暂无章节</div>";
+   return `<div class="rdwrap"><div class="rdbar">
+     <select id="rdSel" onchange="rdGo(D.chapters[+this.value].no)">${D.chapters.map((c,i)=>`<option value="${i}">第${c.no}章 ${esc(c.title)}</option>`).join("")}</select>
+     <button class="btn" onclick="rdNext(-1)">← 上一章</button>
+     <button class="btn" onclick="rdNext(1)">下一章 →</button>
+     <span class="sp"></span>
+     <button class="btn" onclick="rdFs(-1)" title="缩小字号">A-</button>
+     <button class="btn" onclick="rdFs(1)" title="放大字号">A+</button>
+     <button class="btn" id="rdThmBtn" onclick="rdThm()">主题·纸张</button>
+   </div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="rdQ" placeholder="全文搜索：人名 / 台词 / 任何词（回车）" onkeydown="if(event.key==='Enter')rdSearch()" style="flex:1;min-width:200px;margin:0"><button class="btn" onclick="rdSearch()">搜索</button></div>
+   <div id="rdRes"></div>
+   <div id="rdView" class="rddata" data-thm="paper"></div></div>`;
  }},
  {id:"ch",name:"章节快照",n:D.chapters.length,f:()=>{
    if(!D.chapters.length)return "<div class='empty'>书稿/ 下暂无章节</div>";
    return D.chapters.slice().reverse().map(c=>{
      const an=anchorsOf(c.no),t=tlOf(c.no);
      return `<div class="card snap"><h3>第${c.no}章 ${esc(c.title)}
+       <a href="#rd" onclick="rdJump(${c.no})" style="float:right;font-size:12px;text-decoration:none;color:var(--acc)">📖 阅读</a>
        ${c.type?`<span class="badge t">${esc(c.type)}</span>`:""}${scoreBadge(c.no)}
        <span class="badge">${c.chars||c.chars===0?c.chars+"字":""}</span>${c.date?`<span class="badge">${esc(c.date)}</span>`:""}</h3>
        ${c.check?`<div class="muted">${esc(c.check)}</div>`:""}
@@ -393,16 +529,26 @@ const SECTIONS=[
    return `<select id="archSel" onchange="archShow(this.value)">${D.files.map((f,i)=>`<option value="${i}">${esc(f.name)}</option>`).join("")}</select><div id="archView"></div>`;
  }}
 ];
+const RD_I=SECTIONS.findIndex(s=>s.id==="rd");
 function render(){
-  document.getElementById("bkTitle").innerHTML=esc(D.root)+"<small>生成于 "+D.generated+" · 网络小说创作技能 v7.12</small>";
+  document.getElementById("bkTitle").innerHTML=esc(D.root)+"<small>生成于 "+D.generated+" · 网络小说创作技能 v7.22</small>";
   document.getElementById("nav").innerHTML=SECTIONS.map((s,i)=>`<a href="#${s.id}" data-i="${i}" onclick="go(${i});return false"><span>${s.name}</span>${s.n!=null?`<span class="n">${s.n}</span>`:""}</a>`).join("");
-  document.getElementById("main").innerHTML=SECTIONS.map((s,i)=>`<section id="sec${i}" class="section"><h2>${s.name}</h2>${s.f()}</section>`).join("")+"<footer>本看板由 tools/visualize.py 生成 · 数据源：书稿/ + mind/ · 改动后重跑即可刷新</footer>";
+  document.getElementById("main").innerHTML=SECTIONS.map((s,i)=>`<section id="sec${i}" class="section"><h2>${s.name}</h2>${s.f()}</section>`).join("")+"<footer>本看板由 tools/visualize.py 生成 · 数据源：书稿/ + mind/ · 改动后重跑即可刷新 · 阅读进度存在本机浏览器（localStorage），换电脑不跟随</footer>";
   go(0);archShow(0);
-  const h=location.hash.slice(1);const idx=SECTIONS.findIndex(s=>s.id===h);if(idx>0)go(idx);
+  if(D.chapters.length){
+    RD.cur=D.chapters.some(c=>c.no===RD.cur)?RD.cur:D.chapters[0].no;
+    openCh(RD.cur,null,false);
+    const tb=document.getElementById("rdThmBtn");if(tb)tb.textContent="主题·"+(THEME_NAMES[RD.thm]||"纸张");
+    const v=document.getElementById("rdView");if(v)v.dataset.thm=RD.thm;}
+  const h=location.hash.slice(1);const idx=SECTIONS.findIndex(s=>s.id===h);
+  if(idx>0){go(idx);if(idx===RD_I)openCh(RD.cur,null,true);}
 }
 function go(i){
   document.querySelectorAll("nav a").forEach((a,j)=>a.classList.toggle("on",i===j));
   document.querySelectorAll(".section").forEach((s,j)=>s.classList.toggle("on",i===j));
+  RD_ON=SECTIONS[i]&&SECTIONS[i].id==="rd";
+  if(RD_ON&&D.chapters.length)
+    window.scrollTo(0,(document.body.scrollHeight-innerHeight)*(RD.pct||0));
 }
 function pcFilter(q){q=q.toLowerCase();document.querySelectorAll(".pc").forEach(c=>c.style.display=c.dataset.s.toLowerCase().includes(q)?"":"none");}
 function anFilter(){const c=document.getElementById("anCat").value,q=(document.getElementById("anQ").value||"").toLowerCase();
@@ -429,9 +575,13 @@ def main():
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     zj = sum(1 for v in data["scores"]["朱雀"].values())
+    total_chars = sum(c["chars"] for c in data["chapters"])
+    size_mb = os.path.getsize(out) / 1048576
     print(f"[✓] 看板已生成：{out}")
     print(f"    章节 {len(data['chapters'])} ｜ 锚点 {len(data['anchors'])} ｜ 角色 {len(data['characters'])} "
           f"｜ 伏笔 {len(data['foreshadow'])} ｜ 朱雀数据 {zj} 章 ｜ 档案 {len(data['files'])} 份")
+    print(f"    内嵌正文 {len(data['chapters'])} 章 / {total_chars / 10000:.1f} 万字（阅读模式可全文阅读+搜索）"
+          f" ｜ 看板体积 {size_mb:.1f} MB" + ("（较大，首次打开加载稍慢属正常）" if size_mb > 12 else ""))
     if data["rhythm_warn"]:
         print(f"    [!] 节奏预警：{'；'.join(data['rhythm_warn'])}")
     if data["toc_orphan"]:
