@@ -3,7 +3,7 @@
 import os, sys, subprocess, zipfile, json
 
 STAGE = r"C:\Users\lenmo\Desktop\网络小说创作技能\.workbuddy\tmp\stage\网络小说创作技能"
-ZIP = r"C:\Users\lenmo\Desktop\网络小说创作技能\dist\网络小说创作技能_v7.23.0_market.zip"
+ZIP = r"C:\Users\lenmo\Desktop\网络小说创作技能\dist\网络小说创作技能_v7.25.0_market.zip"
 
 print("=== 脚本可执行性（--help） ===")
 sd = os.path.join(STAGE, "scripts")

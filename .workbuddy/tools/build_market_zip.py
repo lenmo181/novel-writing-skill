@@ -8,14 +8,14 @@ import os, re, shutil, zipfile, subprocess, sys
 
 ROOT = r"C:\Users\lenmo\Desktop\网络小说创作技能"
 SKILL_NAME = "网络小说创作技能"
-VER = "7.23.0"
+VER = "7.25.0"
 STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage")
 STAGE = os.path.join(STAGE_ROOT, SKILL_NAME)
 DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_market.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
-                ".idea", ".vscode", "dist", "out"}
+                ".idea", ".vscode", "dist", "out", "tests"}
 EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store"}
 TEXT_EXT = {".md", ".py", ".txt", ".json", ".yaml", ".yml", ".sh", ".html",
             ".js", ".ts", ".css", ".csv", ".bat", ".ps1"}
@@ -38,8 +38,8 @@ REPS = [
 
 FM_INSERT = """display_name: 网络小说创作技能
 display_name_en: Web Novel Studio
-description_zh: "面向超长篇网文的工业化创作引擎：一个入口覆盖初始化项目、写章续写、短篇、短剧剧本、扫榜选题、拆书学习、导入旧书、审校诊断、去AI味、扩写润色、朱雀/墨尺AI检测、封面生成、可视化看板与无人值守日更；每章强制跑 30 项校验（脚本硬卡 13 + AI 语义 17），不达标禁止交付。"
-description_en: "An industrial-grade writing engine for long-form Chinese web novels: project setup, chapter drafting, short stories, vertical-drama scripts, market trend research, book deconstruction, legacy manuscript import, review and AI-flavor removal, cover generation, dashboards and unattended daily writing. Every chapter must pass a 30-item quality gate before delivery."
+description_zh: "面向超长篇网文的工业化创作引擎：一个入口覆盖初始化项目、写章续写、短篇、短剧剧本、扫榜选题、拆书学习、导入旧书、审校诊断、去AI味、通读顺滑、扩写润色、朱雀/墨尺AI检测、封面生成、可视化看板与无人值守日更；每章强制跑 30 项校验（脚本硬卡 13 + AI 语义 17），不达标禁止交付。"
+description_en: "An industrial-grade writing engine for long-form Chinese web novels: project setup, chapter drafting, short stories, vertical-drama scripts, market trend research, book deconstruction, legacy manuscript import, review, AI-flavor removal, read-through smoothing, cover generation, dashboards and unattended daily writing. Every chapter must pass a 30-item quality gate before delivery."
 category: writing
 version: %s
 author: 豫晨""" % VER
