@@ -24,6 +24,10 @@ import sys
 import webbrowser
 from datetime import datetime
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen_index import collect_chapters, read_body_chars  # noqa: E402
+
 # ---------------------------------------------------------------- 数据采集
 
 def read_text(path):
@@ -89,18 +93,16 @@ def chapter_paras(txt):
 
 
 def scan_chapters(root):
-    """书稿/ 章文件 → [{no, title, file, chars, paras}]（paras=内嵌正文段落，v7.22）"""
+    """书稿/ 章文件 → [{no, title, file, chars, paras}]，与 gen_index 统一识别/字数口径。"""
     out = []
-    pat = re.compile(r"^第(\d+)章_(.+)\.md$")
-    for p in sorted(glob.glob(os.path.join(root, "书稿", "第*章_*.md"))):
-        m = pat.match(os.path.basename(p))
-        if not m:
-            continue
-        txt = read_text(p)
-        chars = len(re.sub(r"\s", "", txt))
-        out.append({"no": int(m.group(1)), "title": m.group(2),
-                    "file": os.path.basename(p), "chars": chars,
-                    "paras": chapter_paras(txt)})
+    book_dir = os.path.join(root, "书稿")
+    if not os.path.isdir(book_dir):
+        return out
+    for no, fname, title in collect_chapters(book_dir):
+        path = os.path.join(book_dir, fname)
+        txt = read_text(path)
+        out.append({"no": no, "title": title or "", "file": fname,
+                    "chars": read_body_chars(path), "paras": chapter_paras(txt)})
     return out
 
 
@@ -171,17 +173,33 @@ def scan_foreshadow(mind):
 
 def scan_decisions(mind):
     rows = table_with_header(read_text(os.path.join(mind, "剧情走向锁定.md")), "日期")
-    return [{"date": r[0], "decision": r[1], "source": r[2]} for r in rows]
+    # v7.25：缺列安全取值——两列表（日期/决策）不再因 r[2] 越界导致整份看板生成失败
+    return [{"date": r[0],
+             "decision": r[1] if len(r) > 1 else "",
+             "source": r[2] if len(r) > 2 else ""} for r in rows]
 
 
 def scan_scores(mind):
-    """朱雀/墨尺报告：5列且首列为整数的行视为单章结果（章|人类分|AI%|疑似%|处置），
-    同章以后出现的为准（报告按时间追加）；另兜底匹配散文行「第X章…人类分 N」。
-    → {"朱雀": {ch: {...}}, "墨尺": {...}}"""
+    """解析当前朱雀/墨尺报告，按表头识别列，兼容不同列数与追加报告。"""
     result = {}
 
-    def _f(cell):
-        return float(re.sub(r"[*\s]", "", cell))
+    def norm(cell):
+        return re.sub(r"[*\s]", "", cell or "")
+
+    def num(cell):
+        s = norm(cell)
+        if not s or s in {"-", "—"}:
+            return None
+        try:
+            return float(re.sub(r"[^0-9.+-]", "", s))
+        except ValueError:
+            return None
+
+    def idx(headers, names):
+        for i, h in enumerate(headers):
+            if h in names:
+                return i
+        return None
 
     for name, fname in (("朱雀", "朱雀检测报告.md"), ("墨尺", "墨尺检测报告.md")):
         txt = read_text(os.path.join(mind, fname))
@@ -189,38 +207,69 @@ def scan_scores(mind):
         for m in re.finditer(r"第(\d+)章[^\n]*?人类分\s*\*{0,2}(\d+(?:\.\d+)?)\*{0,2}", txt):
             scores[int(m.group(1))] = {"human": float(m.group(2)), "ai": None, "sus": None}
         for header, rows in md_tables(txt):
-            if "人类分" not in header:
+            headers = [norm(c) for c in header]
+            ch_i = idx(headers, {"章号", "章节", "章"})
+            human_i = idx(headers, {"人类分", "人类分数"})
+            total_i = idx(headers, {"总分", "total"})
+            ai_i = idx(headers, {"AI%", "AI", "ai_pct"})
+            sus_i = idx(headers, {"疑似%", "疑似AI%", "疑似AI"})
+            if ch_i is None:
                 continue
-            for r in rows:
-                if len(r) != 5 or not re.fullmatch(r"\d{1,4}", re.sub(r"[*\s]", "", r[0])):
+            for row in rows:
+                vals = [(c or "").strip() for c in row]
+                if ch_i >= len(vals):
                     continue
-                try:
-                    scores[int(re.sub(r"[*\s]", "", r[0]))] = {
-                        "human": _f(r[1]), "ai": _f(r[2]), "sus": _f(r[3])}
-                except ValueError:
+                chapter = num(vals[ch_i])
+                if chapter is None or int(chapter) != chapter:
                     continue
+                human = num(vals[human_i]) if human_i is not None and human_i < len(vals) else None
+                total = num(vals[total_i]) if total_i is not None and total_i < len(vals) else None
+                if human is None and total is not None:
+                    human = total * 10
+                if human is None:
+                    # v7.25：最近一轮该章检测失败（结论「失败」或整行占位符）→ 旧分数不再代表
+                    # 当前状态，从走势/徽标中移除，而不是继续展示旧成功分
+                    rest = [c for k2, c in enumerate(vals) if k2 != ch_i]
+                    if any("失败" in c for c in rest) or all(c.strip() in {"-", "—", ""} for c in rest):
+                        scores.pop(int(chapter), None)
+                    continue
+                scores[int(chapter)] = {
+                    "human": human,
+                    "ai": num(vals[ai_i]) if ai_i is not None and ai_i < len(vals) else None,
+                    "sus": num(vals[sus_i]) if sus_i is not None and sus_i < len(vals) else None,
+                }
         result[name] = scores
     return result
 
 
-def rhythm_warnings(types):
-    """节奏预警（对齐 grep_consistency D类口径）：同类连续≥3章；缓冲-xx 合计连续≥4章。"""
+def rhythm_warnings(chapters):
+    """节奏预警（v7.25 重写）：入参改为 [{no, type}]——告警章号用真实章号，且「连续」按
+    章号严格递增判定（此前用列表序号当章号，第1/2/10章会被误报成「第1-3章连续」）。
+    规则不变：同类连续≥3章；任意缓冲型合计连续≥4章。"""
     warns = []
-    run, run_val = 1, None
-    run_buf = 0
-    for i, t in enumerate(types + [None]):
-        val = (t or "").strip()
-        if val == run_val and val:
-            run += 1
-            run_buf += 1 if val.startswith("缓冲") else 0
-        else:
-            if run_val:
-                if run >= 3:
-                    warns.append(f"第{i-run+1}-{i}章连续 {run} 章「{run_val}」")
-                elif run_buf >= 4:
-                    warns.append(f"第{i-run+1}-{i}章连续缓冲章合计 {run_buf} 章")
-            run, run_val, run_buf = 1, val, 1 if val.startswith("缓冲") else 0
-    return [w for w in warns if w]
+    types = [c for c in chapters if (c.get("type") or "").strip()]
+    i = 0
+    while i < len(types):
+        val = types[i]["type"].strip()
+        j = i + 1
+        while (j < len(types) and types[j]["type"].strip() == val
+               and types[j]["no"] == types[j - 1]["no"] + 1):
+            j += 1
+        if j - i >= 3:
+            warns.append(f"第{types[i]['no']}-{types[j - 1]['no']}章连续 {j - i} 章「{val}」")
+        i = max(j, i + 1)
+    i = 0
+    while i < len(types):
+        if not types[i]["type"].strip().startswith("缓冲"):
+            i += 1
+            continue
+        start = i
+        while (i < len(types) and types[i]["type"].strip().startswith("缓冲")
+               and (i == start or types[i]["no"] == types[i - 1]["no"] + 1)):
+            i += 1
+        if i - start >= 4:
+            warns.append(f"第{types[start]['no']}-{types[i - 1]['no']}章连续缓冲章合计 {i - start} 章")
+    return warns
 
 
 def collect(root):
@@ -251,7 +300,7 @@ def collect(root):
     data["foreshadow"] = scan_foreshadow(mind)
     data["decisions"] = scan_decisions(mind)
     data["scores"] = scan_scores(mind)
-    data["rhythm_warn"] = rhythm_warnings([c["type"] for c in data["chapters"]])
+    data["rhythm_warn"] = rhythm_warnings(data["chapters"])
     raw_files = []
     for base, dirs, files in os.walk(mind):
         dirs[:] = [d for d in dirs if d != "检测备份"]
@@ -531,7 +580,7 @@ const SECTIONS=[
 ];
 const RD_I=SECTIONS.findIndex(s=>s.id==="rd");
 function render(){
-  document.getElementById("bkTitle").innerHTML=esc(D.root)+"<small>生成于 "+D.generated+" · 网络小说创作技能 v7.22</small>";
+  document.getElementById("bkTitle").innerHTML=esc(D.root)+"<small>生成于 "+D.generated+" · 网络小说创作技能 __SKILL_VER__</small>";
   document.getElementById("nav").innerHTML=SECTIONS.map((s,i)=>`<a href="#${s.id}" data-i="${i}" onclick="go(${i});return false"><span>${s.name}</span>${s.n!=null?`<span class="n">${s.n}</span>`:""}</a>`).join("");
   document.getElementById("main").innerHTML=SECTIONS.map((s,i)=>`<section id="sec${i}" class="section"><h2>${s.name}</h2>${s.f()}</section>`).join("")+"<footer>本看板由 tools/visualize.py 生成 · 数据源：书稿/ + mind/ · 改动后重跑即可刷新 · 阅读进度存在本机浏览器（localStorage），换电脑不跟随</footer>";
   go(0);archShow(0);
@@ -559,6 +608,28 @@ render();
 
 # ---------------------------------------------------------------- 主流程
 
+def skill_version():
+    """从技能包 SKILL.md 头部读版本号（首个 vX.Y[Z]），读不到回退 v7.25。
+    v7.25 新增：页脚版本不再硬编码，避免每次发版看板版本漂移。"""
+    fallback = "v7.25"
+    try:
+        skill_md = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "SKILL.md")
+        with open(skill_md, "r", encoding="utf-8", errors="replace") as f:
+            m = re.search(r"v(\d+\.\d+(?:\.\d+)?)", f.read(2000))
+        return "v" + m.group(1) if m else fallback
+    except OSError:
+        return fallback
+
+
+def apply_template(html, data_json, title, ver):
+    """单遍占位符替换（v7.25）：此前链式 .replace 会让正文里恰好含 __TITLE__/__DATA__
+    的段落被二次替换污染；re.sub 对已替换内容不重扫，天然免疫。"""
+    return re.sub(r"__(DATA|TITLE|SKILL_VER)__",
+                  lambda m: {"DATA": data_json, "TITLE": title, "SKILL_VER": ver}[m.group(1)],
+                  html)
+
+
 def main():
     ap = argparse.ArgumentParser(description="生成小说项目可视化看板（看板.html）")
     ap.add_argument("root", nargs="?", default=".", help="小说项目根目录")
@@ -570,7 +641,7 @@ def main():
         return 2
     data = collect(root)
     data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    html = HTML.replace("__DATA__", data_json).replace("__TITLE__", data["root"])
+    html = apply_template(HTML, data_json, data["root"], skill_version())
     out = os.path.join(root, "看板.html")
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)

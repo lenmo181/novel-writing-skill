@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 retention_check.py — 网络小说创作技能 v7.20 留存/结构分析（热榜研究系统·写章侧消费）
-用法: python retention_check.py <本章.md|txt> [--prev 上一章.md|txt] [--book <项目根>]
+用法: python retention_check.py <本章.md|txt> [--prev 上一章.md|txt]
 输出: 【本章结构分析】+【留存风险分析】；全部为建议级（[i]/[!]），退出码 0=完成分析，2=输入错误。
 定位: 不判文学分数、不做交付闸门（硬闸门在 check_chapter.py；跨章节奏类型归 grep_consistency.py）。
       所有指标是机械代理，语义结论（爽点/悬念/动机）仍由 AI 语义 17 项与审稿卡负责。
@@ -37,22 +37,29 @@ DUP_PREV_WARN = 0.40   # 与上章 3-gram 包含率警告线（知识库·十四
 NOVEL_WARN = 0.55      # 本章新 2-gram 占比警告线（知识库·十三：信息增量底线）
 
 
+TITLE_RE = re.compile(r"^\s*(?:#\s*)?第[0-9０-９零一二三四五六七八九十百千万两]{1,8}\s*[章节回]")
+FORMAT_RE = re.compile(r"^\s*(?:>|```|\||---+|===+|\*{3,})")
+
+
 def read_body(path):
     if not os.path.exists(path):
         return None
     raw = open(path, encoding="utf-8", errors="replace").read()
     lines = [l.rstrip() for l in raw.splitlines()]
-    body_lines, first_body = [], False
+    body_lines = []
     for l in lines:
-        if not first_body:
-            if l.strip():
-                first_body = True  # 首个非空行视为标题行，跳过
+        if not l.strip():
+            if body_lines and body_lines[-1] != "":
+                body_lines.append("")
+            continue
+        if not body_lines and TITLE_RE.match(l):
+            continue
+        if FORMAT_RE.match(l):
             continue
         body_lines.append(l)
     text = "\n".join(body_lines)
     paras = [re.sub(r"\s+", "", p) for p in re.split(r"\n+", text) if p.strip()]
-    paras = [p for p in paras if p]
-    return paras
+    return [p for p in paras if p]
 
 
 def ngrams(text, n):
@@ -61,6 +68,9 @@ def ngrams(text, n):
 
 
 def analyze(paras):
+    """→ 指标 dict；空正文返回 None（v7.25：此前 head[0] 直接 IndexError 崩溃）。"""
+    if not paras:
+        return None
     text = "".join(paras)
     total = len(COUNTABLE.findall(text))
     quote_chars = sum(len(m.group(1) or m.group(2) or "") for m in SPAN_CHAL.finditer(text))
@@ -125,6 +135,9 @@ def main():
     if paras is None:
         print(f"[✗] 输入错误：找不到章节文件 {args.file}")
         sys.exit(2)
+    if not paras:
+        print("[✗] 输入错误：文件没有可分析的正文（空文件/仅标题/仅格式行）")
+        sys.exit(2)
     a = analyze(paras)
 
     print("=" * 46)
@@ -165,6 +178,8 @@ def main():
         pparas = read_body(args.prev)
         if pparas is None:
             print(f"[!] 上一章文件不可读：{args.prev}（跳过跨章分析）")
+        elif not pparas:
+            print(f"[!] 上一章无可分析正文：{args.prev}（跳过跨章分析）")
         else:
             b = analyze(pparas)
             contain = len(a["grams3"] & b["grams3"]) / max(len(a["grams3"]), 1)

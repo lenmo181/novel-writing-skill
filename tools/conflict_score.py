@@ -154,20 +154,40 @@ def demo():
 
 
 def run_json(path, base):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        data = json.load(f)
-    chapters = data.get("chapters", data if isinstance(data, list) else [])
-    if not chapters:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[✗] 无法读取 JSON：{e}")
+        return 1
+    if isinstance(data, list):
+        chapters = data
+    elif isinstance(data, dict):
+        chapters = data.get("chapters", [])
+    else:
+        chapters = []
+    if not isinstance(chapters, list) or not chapters:
         print("[✗] JSON 中没有 chapters 数组，也没有章节列表")
         return 1
     results, peak_note = [], []
     for ch in chapters:
+        if not isinstance(ch, dict):
+            print("[✗] JSON 章节项必须是对象")
+            return 1
         no = ch.get("chapter")
+        if no is not None and (isinstance(no, bool) or not isinstance(no, int)):
+            # v7.25 修复：字符串/列表章号此前在 render 后的峰值过滤才炸 TypeError，
+            # 现在入口处给受控输入错误
+            print(f"[✗] chapter 字段必须是整数（或省略），收到 {type(no).__name__}：{no!r}")
+            return 1
         try:
             total = render(no, ch.get("title"), ch.get("factors"), base)
         except KeyError as e:
             print(f"[✗] 未知因子名 {e}（第{no}章）。合法因子: "
                   + "、".join(k for k, _, _ in WEIGHTS))
+            return 1
+        except (TypeError, ValueError) as e:
+            print(f"[✗] 第{no}章因子格式错误：{e}")
             return 1
         results.append((no if no is not None else -1, total))
         if is_peak(total):

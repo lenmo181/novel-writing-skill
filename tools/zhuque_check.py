@@ -3,7 +3,7 @@
 zhuque_check.py — 网络小说创作技能 v7.5 朱雀AI文本线上检测
 API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图片暂不支持）
      POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify
-单章: python zhuque_check.py <章节文件.md|txt> [--threshold 50] [--warn 30]
+单章: python zhuque_check.py <章节文件.md|txt> [--threshold 90] [--warn 80]
                                     [--segments 5] [--no-merge] [--timeout 30]
                                     [--key XXX] [--json]
 全书: python zhuque_check.py --book <项目根> [--only 3,7-12] [--delay 1] [其余单章参数]
@@ -12,7 +12,7 @@ API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图
      --only 用于修复后只重测指定章（省额度）。
 Key 来源: --key 参数 > 环境变量 ZHUQUE_API_KEY。
      Key 在 EdgeOne 控制台 → Makers → Models → API Key 页面创建；每月免费额度 50 万 token。
-判定: human_score = 人工占比×100（百分制「人类分」，100-ai_pct）
+判定: human_score = 人工占比×100（百分制「人类分」=100−AI%−疑似%）
      human_score ≥ threshold（默认90）→ 通过
      human_score ≥ warn（默认80）    → 警告但通过（须按《去AI味手册》过目）
      否则 → 退出码 1 禁止交付
@@ -23,6 +23,7 @@ Key 来源: --key 参数 > 环境变量 ZHUQUE_API_KEY。
 """
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -49,15 +50,50 @@ from gen_index import collect_chapters  # noqa: E402
 LABEL_NAMES = {0: "人工", 1: "AI", 2: "疑似AI"}
 
 
+def _ratio_pct(labels_ratio, key):
+    """labels_ratio[key]（0-1 小数）→ 百分数；非数字/NaN/越界一律抛 ValueError（v7.25：
+    此前 NaN 会因比较恒为假而落进「通过」分支，人工占比 2 直接显示人类分 200）。"""
+    try:
+        v = float(labels_ratio.get(key, 0) or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"labels_ratio[{key}] 不是数字：{labels_ratio.get(key)!r}")
+    if not math.isfinite(v) or not 0 <= v <= 1:
+        raise ValueError(f"labels_ratio[{key}] 超出 0-1 范围：{v}")
+    return v * 100
+
+
+def level_for_human(human, threshold, warn):
+    if human < warn:
+        return "fail"
+    if human < threshold:
+        return "warn"
+    return "pass"
+
+
+def _relevel_reused(rows, threshold, warn):
+    """旧数据按本轮阈值重判（v7.25）：数值沿用上轮省额度，但结论必须反映当前交付线——
+    此前提高阈值后 --only 局部重测，未重测章仍沿用旧「通过」结论，全书误报全部通过。"""
+    for r in rows:
+        if r.get("reused") and r.get("level") != "error":
+            r["level"] = level_for_human(r["human"], threshold, warn)
+
+
 def evaluate(labels_ratio, threshold, warn):
     """人工占比即百分制人类分。返回 (human_score, level)，level∈pass/warn/fail。
-    human_score ≥ threshold(默认90) 通过；warn(默认80)~threshold 警告；< warn 禁止交付。"""
-    human = float(labels_ratio.get("0", 0) or 0) * 100
-    if human < warn:
-        return human, "fail"
-    if human < threshold:
-        return human, "warn"
-    return human, "pass"
+    human_score ≥ threshold(默认90) 通过；warn(默认80)~threshold 警告；< warn 禁止交付。
+    labels_ratio 含非数字/越界值时抛 ValueError（调用方按检测失败处理，不判超标）。"""
+    human = _ratio_pct(labels_ratio, "0")
+    return human, level_for_human(human, threshold, warn)
+
+
+def _percent_arg(text):
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"不是数字：{text}")
+    if not math.isfinite(v) or not 0 <= v <= 100:
+        raise argparse.ArgumentTypeError(f"须为 0-100 的有限数：{text}")
+    return v
 
 
 def call_api(text, key, is_merge, timeout):
@@ -80,6 +116,8 @@ def call_api(text, key, is_merge, timeout):
         raise RuntimeError(f"HTTP {e.code}：{detail or e.reason}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"网络错误：{e.reason}")
+    except TimeoutError as e:
+        raise RuntimeError(f"网络超时：{e}")
     except json.JSONDecodeError:
         raise RuntimeError("响应不是合法 JSON（检查网络代理或网关地址）")
     if not isinstance(data, dict) or data.get("status") != "success":
@@ -89,9 +127,14 @@ def call_api(text, key, is_merge, timeout):
 
 
 def worst_segments(segments, limit, width=40):
-    """取 label∈{1,2} 的分段按置信度降序前 limit 个，输出定位行。"""
-    rows = [s for s in segments if s.get("label") in (1, 2)]
-    rows.sort(key=lambda s: s.get("conf", 0), reverse=True)
+    """取 label∈{1,2} 的分段按置信度降序前 limit 个，输出定位行（非字典项跳过，v7.25）。"""
+    rows = [s for s in segments if isinstance(s, dict) and s.get("label") in (1, 2)]
+    def _conf(s):
+        try:
+            return float(s.get("conf", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    rows.sort(key=_conf, reverse=True)
     out = []
     for s in rows[:limit]:
         t = str(s.get("text", "")).replace("\n", " ")
@@ -100,7 +143,7 @@ def worst_segments(segments, limit, width=40):
         pos = s.get("position")
         pos_s = f"[{pos[0]}-{pos[1]}]" if isinstance(pos, (list, tuple)) and len(pos) == 2 else ""
         out.append(f"    seg#{s.get('order', '?')} {pos_s} {LABEL_NAMES[s['label']]}"
-                   f" conf={s.get('conf', 0):.3f} 「{t}」")
+                   f" conf={_conf(s):.3f} 「{t}」")
     return out
 
 
@@ -126,40 +169,55 @@ def parse_only(spec):
 
 
 def load_prev_report(path):
-    """读上一轮报告 -> (轮次, {章号: ai_pct}, {章号: 完整行})。文件不存在或解析失败返回 (0, {}, {})。"""
+    """读上一轮报告 -> (轮次, {章号: 人类分}, {章号: 完整行})。文件不存在或解析失败返回 (0, {}, {})。
+    v7.25：较上轮口径统一为「人类分」（越高越好）；人类分取「人类分」列（新旧格式同在第5列），
+    旧版 ai_pct 列不再读取；数字列损坏的行跳过（「失败」结论行除外），不再整表崩溃。"""
     if not os.path.isfile(path):
         return 0, {}, {}
     rnd, prev, rows = 0, {}, {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 m = re.search(r"轮次[:：]\s*(\d+)", line)
                 if m:
                     rnd = int(m.group(1))
                 cells = [c.strip() for c in line.strip().strip("|").split("|")]
-                if len(cells) < 8 or not cells[0].isdigit():
+                if len(cells) < 7 or not cells[0].isdigit():
                     continue
                 num = int(cells[0])
-                if re.fullmatch(r"[\d.]+", cells[5]):
-                    prev[num] = float(cells[5])
-                    verdict = cells[7]
-                    level = ("fail" if "超标" in verdict else
-                             "warn" if "警告" in verdict else
-                             "error" if "失败" in verdict else "pass")
-                    rows[num] = {"num": num, "title": cells[1], "level": level,
-                                 "ai": float(cells[2]), "suspect": float(cells[3]),
-                                 "human": float(cells[4]), "pct": float(cells[5]),
-                                 "prev": None, "segments": [], "reused": True}
-                elif "失败" in cells[7]:
-                    rows[num] = {"num": num, "title": cells[1], "level": "error",
-                                 "prev": None, "segments": [], "reused": True}
+                if not re.fullmatch(r"[\d.]+", cells[4]):
+                    if "失败" in cells[-1]:
+                        rows[num] = {"num": num, "title": cells[1], "level": "error",
+                                     "prev": None, "segments": [], "reused": True}
+                    continue
+                try:
+                    human = float(cells[4])
+                except ValueError:
+                    continue
+                try:
+                    ai = float(cells[2])
+                except ValueError:
+                    ai = 0.0
+                try:
+                    sus = float(cells[3])
+                except ValueError:
+                    sus = 0.0
+                verdict = cells[-1]
+                level = ("fail" if "超标" in verdict else
+                         "warn" if "警告" in verdict else
+                         "error" if "失败" in verdict else "pass")
+                rows[num] = {"num": num, "title": cells[1], "level": level,
+                             "ai": ai, "suspect": sus, "human": human,
+                             "prev": None, "segments": [], "reused": True}
+                prev[num] = human
     except OSError:
         return 0, {}, {}
     return rnd, prev, rows
 
 
 def write_report(path, rnd, rows, threshold, warn):
-    """rows: [{num,title,ai,suspect,human,pct,level,segments(err=None)}]"""
+    """rows: [{num,title,ai,suspect,human,level,segments(err=None)}]（v7.25 去掉冗余 ai_pct 列，
+    较上轮=人类分变化，涨为正）"""
     n_fail = sum(1 for r in rows if r["level"] == "fail")
     n_warn = sum(1 for r in rows if r["level"] == "warn")
     n_err = sum(1 for r in rows if r["level"] == "error")
@@ -170,21 +228,21 @@ def write_report(path, rnd, rows, threshold, warn):
         f"参数：达标线{threshold:g}分/警告线{warn:g}分（人类分=人工占比，100满分） ｜ 送检 {len(rows)} 章 ｜ "
         f"通过 {n_pass} ｜ 警告 {n_warn} ｜ **超标 {n_fail}** ｜ 失败 {n_err}",
         "",
-        "| 章号 | 标题 | AI% | 疑似% | 人类分 | ai_pct | 较上轮 | 结论 |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 章号 | 标题 | AI% | 疑似% | 人类分 | 较上轮 | 结论 |",
+        "|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         if r["level"] == "error":
-            lines.append(f"| {r['num']} | {r['title']} | - | - | - | - | - | 检测失败 |")
+            lines.append(f"| {r['num']} | {r['title']} | - | - | - | - | 检测失败 |")
             continue
         if r.get("reused"):
             delta_s = "上轮值"
         else:
-            delta = r["pct"] - r["prev"] if r["prev"] is not None else None
+            delta = r["human"] - r["prev"] if r["prev"] is not None else None
             delta_s = f"{delta:+.1f}" if delta is not None else "-"
         verdict = {"fail": "**超标**", "warn": "警告", "pass": "通过"}[r["level"]]
         lines.append(f"| {r['num']} | {r['title']} | {r['ai']:.1f} | {r['suspect']:.1f} |"
-                     f" {r['human']:.1f} | {r['pct']:.1f} | {delta_s} | {verdict} |")
+                     f" {r['human']:.1f} | {delta_s} | {verdict} |")
     fix_list = [r for r in rows if r["level"] in ("fail", "warn")]
     err_list = [r for r in rows if r["level"] == "error"]
     lines.append("")
@@ -192,7 +250,7 @@ def write_report(path, rnd, rows, threshold, warn):
         lines.append("## 待修复清单（超标优先，按《去AI味手册》8 Gate 定向改写）")
         lines.append("")
         for r in fix_list:
-            head = (f"- **第{r['num']}章 {r['title']}** ai_pct={r['pct']:.1f}%（{r['level']}"
+            head = (f"- **第{r['num']}章 {r['title']}** 人类分={r['human']:.1f}（{r['level']}"
                     f"{'，上轮数据' if r.get('reused') else ''}）")
             lines.append(head)
             for seg in r["segments"]:
@@ -207,7 +265,7 @@ def write_report(path, rnd, rows, threshold, warn):
         lines.append("")
         lines.append("无——全部章节达标，可交付。")
     lines.append("")
-    lines.append("> 循环协议：修复后 `--only` 只重测未达标章；单章连续两轮降幅<5个百分点或重测满3轮 → 移交人工。")
+    lines.append("> 循环协议：修复后 `--only` 只重测未达标章；单章连续两轮人类分涨幅<5分或重测满3轮 → 移交人工。")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
@@ -254,21 +312,25 @@ def run_book(args, key):
                 print(f"[!] {label}：正文仅{n}字，跳过（不足送检）")
                 continue
             data = call_api(body, key, is_merge=not args.no_merge, timeout=args.timeout)
-            ratio = data.get("labels_ratio") or {}
-            pct, level = evaluate(ratio, args.threshold, args.warn)
+            ratio = data.get("labels_ratio")
+            if not isinstance(ratio, dict) or not ratio:
+                raise RuntimeError("接口返回缺少 labels_ratio 评分（按检测失败处理，不判超标）")
+            human, level = evaluate(ratio, args.threshold, args.warn)
+            ai_r = _ratio_pct(ratio, "1")
+            su_r = _ratio_pct(ratio, "2")
             mark = {"fail": "[✗]", "warn": "[!]", "pass": "[✓]"}[level]
-            print(f"{mark} {label}：人类分={pct:.1f}（AI {ratio.get('1', 0) * 100:.1f}"
-                  f"/疑似 {ratio.get('2', 0) * 100:.1f}）")
-            seg_limit = 3 if level in ("fail", "warn") else 0
+            print(f"{mark} {label}：人类分={human:.1f}（AI {ai_r:.1f}"
+                  f"/疑似 {su_r:.1f}）")
+            seg_limit = args.segments if level in ("fail", "warn") else 0
             rows.append({
                 "num": num, "title": title or fname, "level": level,
-                "ai": float(ratio.get("1", 0) or 0) * 100,
-                "suspect": float(ratio.get("2", 0) or 0) * 100,
-                "human": float(ratio.get("0", 0) or 0) * 100,
-                "pct": pct, "prev": prev_map.get(num),
+                "ai": ai_r,
+                "suspect": su_r,
+                "human": human,
+                "prev": prev_map.get(num),
                 "segments": worst_segments(data.get("segment_labels") or [], seg_limit, width=60),
             })
-        except RuntimeError as e:
+        except (RuntimeError, ValueError, OSError) as e:
             n_err += 1
             rows.append({"num": num, "title": title or fname, "level": "error",
                          "err": str(e)[:60], "prev": None, "segments": []})
@@ -276,6 +338,7 @@ def run_book(args, key):
         if i < len(chapters) - 1 and args.delay > 0:
             time.sleep(args.delay)
 
+    _relevel_reused(rows, args.threshold, args.warn)
     mind_dir = os.path.dirname(report_path)
     if mind_dir and not os.path.isdir(mind_dir):
         os.makedirs(mind_dir, exist_ok=True)
@@ -309,10 +372,10 @@ def main():
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/朱雀检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12），省额度")
     ap.add_argument("--delay", type=float, default=1.0, help="全书模式章节间隔秒数（默认1）")
-    ap.add_argument("--threshold", type=float, default=90,
-                    help="人类分硬下限%%（=100-ai_pct，默认90，真源=常量表·六）")
-    ap.add_argument("--warn", type=float, default=80,
-                    help="人类分警告线%%（默认80）")
+    ap.add_argument("--threshold", type=_percent_arg, default=90,
+                    help="人类分达标线%%（默认90，真源=常量表·六；0-100 有限数）")
+    ap.add_argument("--warn", type=_percent_arg, default=80,
+                    help="人类分警告线%%（默认80；0-100 有限数）")
     ap.add_argument("--segments", type=int, default=5,
                     help="超标/警告时展示 AI 味最重的前 N 个分段（默认5，0=不展示）")
     ap.add_argument("--no-merge", action="store_true",
@@ -324,6 +387,12 @@ def main():
 
     if not args.book and not args.file:
         ap.error("需要章节文件路径，或 --book <项目根> 进入全书模式")
+    if not 0 <= args.segments <= 50:
+        print("[✗] 输入错误：--segments 须为 0-50 的整数")
+        return 2
+    if args.warn > args.threshold:
+        print(f"[✗] 输入错误：警告线 {args.warn:g} 不能高于达标线 {args.threshold:g}")
+        return 2
 
     key = args.key or os.environ.get(KEY_ENV, "")
     if not key:
@@ -338,7 +407,11 @@ def main():
         print(f"[✗] 文件不存在或不可读：{args.file}")
         return 2
 
-    text = load_text(args.file)
+    try:
+        text = load_text(args.file)
+    except OSError as e:
+        print(f"[✗] 输入错误：无法读取 {args.file}（{e}）")
+        return 2
     lines, _dropped = body_lines(text)   # 与 check_chapter.py 同口径剥标题行/格式行
     body = "\n".join(lines)
     n = count_chars(body)
@@ -357,10 +430,19 @@ def main():
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
-    ratio = data.get("labels_ratio") or {}
-    human_score, level = evaluate(ratio, args.threshold, args.warn)
-    ai_r = float(ratio.get("1", 0) or 0) * 100
-    su_r = float(ratio.get("2", 0) or 0) * 100
+    ratio = data.get("labels_ratio")
+    if not isinstance(ratio, dict) or not ratio:
+        print("[✗] 检测未完成：接口返回缺少 labels_ratio 评分")
+        print("    注意：未检出 ≠ 超标，本结论不触发交付闸门；排查后重跑即可")
+        return 3
+    try:
+        human_score, level = evaluate(ratio, args.threshold, args.warn)
+        ai_r = _ratio_pct(ratio, "1")
+        su_r = _ratio_pct(ratio, "2")
+    except ValueError as e:
+        print(f"[✗] 检测未完成：{e}")
+        print("    注意：未检出 ≠ 超标，本结论不触发交付闸门；排查后重跑即可")
+        return 3
     hu_r = human_score
     softmax = data.get("softmax_confidence", "?")
     ratio_c = data.get("ratio_confidence", "?")

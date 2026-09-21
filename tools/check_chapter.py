@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.19 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.24 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
                              [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -37,6 +37,9 @@ HANZI = re.compile("[\u4e00-\u9fff\u3400-\u4dbf]")
 
 # 对话区间正则（按 --quote 口径切换，见文件头说明）
 QUOTE_MODES = ("chal", "straight", "any")
+DIALOG_MIN_DEFAULT = 15
+DIALOG_MAX_DEFAULT = 50
+AI_SCORE_HARD_MAX = 6
 _SPAN_CHAL = re.compile("[\u201c\u2018]([^\u201c\u2018\u201d\u2019]*)[\u201d\u2019]")
 _SPAN_STRAIGHT = re.compile("\"([^\"]*)\"")
 _SPAN_ANY = re.compile(
@@ -134,7 +137,8 @@ SPEECH_TAGS = [
 PRONOUN_TAG_RE = re.compile(r"[他她它](?:说道?|[^的话过]{1,3}说)(?:[“：]|[，。][“])")
 # v7.18 补检：行尾后缀式「”他说。」——v7.17.1 批量修复实证后缀式与前缀式同源泛滥（湘西诡闻107章209处），
 # 修饰字符集与 fix_said_tags.py MOD_CH 同源（排除，的话着 防叙述误伤），≤4 字防抓长动作句
-PRONOUN_TAG_SUFFIX_RE = re.compile(r"”\s*[他她它][^“”，。！？\n的话着]{0,4}说道?[，。：]?\s*$")
+# v7.25：加 re.MULTILINE——此前 $ 只匹配全文末尾，正文中段的后缀式全部漏计
+PRONOUN_TAG_SUFFIX_RE = re.compile(r"”\s*[他她它][^“”，。！？\n的话着]{0,4}说道?[，。：]?\s*$", re.MULTILINE)
 
 EMOTION_WORDS = "愤怒悲伤高兴快乐害怕恐惧紧张失望痛苦委屈羞愧尴尬欣慰绝望无奈心疼得意后悔震惊惊讶疑惑茫然"
 EMOTION_PATTERNS = [
@@ -178,12 +182,18 @@ def load_text(path):
 
 
 def body_lines(text):
+    """切出正文行与被剔除行。
+    标题剔除口径（v7.25 收紧）：裸「第X章」只剔首个标题行（标题在文件头）；正文中段的
+    「第三回交手，…」这类叙述行按正文保留参与全部校验（此前整段被当标题剔除，漏检硬伤）。
+    「#」开头的标题行任何位置都剔（markdown 标题=格式行，无歧义）。"""
     kept, dropped = [], []
+    seen_title = False
     for raw in text.splitlines():
         line = raw.rstrip()
         if not line.strip():
             continue
-        if TITLE_RE.match(line):
+        if TITLE_RE.match(line) and (line.lstrip().startswith("#") or not seen_title):
+            seen_title = True
             dropped.append("章节标题: " + line.strip()[:30])
             continue
         if SKIP_LINE_RE.match(line):
@@ -197,7 +207,16 @@ def count_chars(s):
     return len(COUNTABLE.findall(s))
 
 
-def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT):
+    if wmin < 0 or wmax < wmin:
+        print(f"[✗] 输入错误：字数区间无效（min={wmin}, max={wmax}）")
+        return 2
+    if not 0 <= dialog_min <= 100 or not 0 <= dialog_max <= 100:
+        print(f"[✗] 输入错误：对话占比阈值必须在 0-100（min={dialog_min}, max={dialog_max}）")
+        return 2
+    if dialog_max and dialog_min < 55 and dialog_min > dialog_max:
+        print(f"[✗] 输入错误：对话下限不能高于上限（min={dialog_min}, max={dialog_max}）")
+        return 2
     if not os.path.isfile(path):
         print(f"[✗] 输入错误：找不到章节文件 {path}")
         return 2
@@ -215,7 +234,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     title, t_len = "", 0
     if title_lines:
         if len(title_lines) > 1:
-            warnings.append(f"检测到 {len(title_lines)} 个标题行——正文里混入的「第X章」行会被剔除，请核查")
+            warnings.append(f"检测到 {len(title_lines)} 个标题行——仅首个作为章节题剔除，其余按正文参与全部校验，请核查是否混入「第X章」行")
         pm = TITLE_PREFIX_RE.match(title_lines[0])
         title = TITLE_SEPARATORS_RE.sub("", (pm.group(1) if pm else "").strip())
         t_len = count_chars(title)
@@ -412,6 +431,8 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
     if avg_sents_per_para > 5:
         score += 2; reasons.append(f"平均每段{avg_sents_per_para:.1f}句")
     print(f"[i] AI味指数(粗测) = {score}/10" + ("：" + "；".join(reasons) if reasons else "，机器指标均正常"))
+    if score >= AI_SCORE_HARD_MAX:
+        failures.append(f"AI味指数 {score}/10 ≥ {AI_SCORE_HARD_MAX}（按《去AI味》8 Gate 定向改写后重测）")
 
     print("-" * 46)
     for w in warnings:
@@ -430,7 +451,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=25, dialog_max=50):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.19（30项中的脚本13项，含章节名规范）",
+        description="章节机械校验 v7.24（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min/--dialog-max 默认 15/50（v7.19 热榜实证 10-49%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
@@ -438,9 +459,9 @@ def main():
     ap.add_argument("--max", type=int, default=2500, help="字数上限（默认2500）")
     ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
                     help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
-    ap.add_argument("--dialog-min", type=int, default=15, dest="dialog_min",
+    ap.add_argument("--dialog-min", type=int, default=DIALOG_MIN_DEFAULT, dest="dialog_min",
                     help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查）")
-    ap.add_argument("--dialog-max", type=int, default=50, dest="dialog_max",
+    ap.add_argument("--dialog-max", type=int, default=DIALOG_MAX_DEFAULT, dest="dialog_max",
                     help="对话占比上限%%（默认50，热榜实证；传0关闭）")
     args = ap.parse_args()
     sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max))
