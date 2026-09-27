@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-visualize.py — 小说项目可视化看板生成器（v7.22，纯标准库）
+visualize.py — 小说项目可视化看板生成器（v7.30，纯标准库）
 
 扫 <项目根>/书稿/ + mind/ 全部档案，生成单文件离线看板 <项目根>/看板.html
 （记忆中心式布局：总览/正文阅读/章节快照/人物状态/伏笔追踪/时间线/事件锚点/检测报告/档案库）。
-v7.22 新增正文阅读模式：全部章节正文内嵌（按章懒渲染），支持续读记忆（localStorage）、
+    v7.22 新增正文阅读模式：全部章节正文内嵌（按章懒渲染），支持续读记忆（localStorage）、
 上一章/下一章（按钮+←→键盘）、字号调节、纸张/夜间/白底三主题、阅读进度条、全文搜索跳转、移动端适配。
 设计借鉴 QMAI 记忆中心与 awesome-novel-agent 节奏预警，实现为本技能自有轻量版。
 
@@ -17,12 +17,14 @@ v7.22 新增正文阅读模式：全部章节正文内嵌（按章懒渲染）�
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
 import sys
 import webbrowser
 from datetime import datetime
+from pathlib import Path
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,9 +34,11 @@ from gen_index import collect_chapters, read_body_chars  # noqa: E402
 
 def read_text(path):
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
             return f.read()
     except OSError:
+        # UnicodeDecodeError 已由 errors=replace 兜底；此函数自称「永不因档案缺失报错」，
+        # 编码坏点/文件锁同样不能拖垮整块看板（v7.30：此前 GBK 章节会让 collect() 裸崩）
         return ""
 
 
@@ -274,7 +278,12 @@ def rhythm_warnings(chapters):
 
 def collect(root):
     mind = os.path.join(root, "mind")
-    data = {"root": os.path.basename(root.rstrip("\\/")) or root,
+    root_name = os.path.basename(root.rstrip("\\/")) or root
+    data = {"root": root_name,
+            # 阅读进度键按「绝对路径哈希」隔离（v7.30：此前只用项目名，不同目录下的
+            # 同名项目共享同一 localStorage 键，续读记忆/主题互相污染）
+            "rdkey": "kbRead::%s::%s" % (
+                root_name, hashlib.md5(os.path.abspath(root).encode("utf-8", "ignore")).hexdigest()[:8]),
             "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "chapters": scan_chapters(root)}
     toc = table_with_header(read_text(os.path.join(mind, "章节目录.md")), "章号", "标题")
@@ -436,7 +445,7 @@ const anchorsOf=no=>D.anchors.filter(a=>a.no===no);
 const tlOf=no=>D.timeline.find(t=>t.no===no);
 // ---------- 正文阅读器（v7.22）：续读记忆/翻章/主题/字号/全文搜索 ----------
 const THEME_NAMES={paper:"纸张",night:"夜间",plain:"白底"};
-const RDKEY="kbRead::"+D.root;
+const RDKEY=D.rdkey;
 let RD={cur:null,pct:0,fs:19,thm:"paper"};
 try{Object.assign(RD,JSON.parse(localStorage.getItem(RDKEY)||"{}"))}catch(e){}
 let RD_ON=false,rdSaveT=0;
@@ -609,9 +618,8 @@ render();
 # ---------------------------------------------------------------- 主流程
 
 def skill_version():
-    """从技能包 SKILL.md 头部读版本号（首个 vX.Y[Z]），读不到回退 v7.25。
-    v7.25 新增：页脚版本不再硬编码，避免每次发版看板版本漂移。"""
-    fallback = "v7.25"
+    """从技能包 SKILL.md 头部读版本号，读不到回退 v7.27。"""
+    fallback = "v7.27"
     try:
         skill_md = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "SKILL.md")
@@ -658,7 +666,9 @@ def main():
     if data["toc_orphan"]:
         print(f"    [!] 章节目录中有但书稿缺失的章号：{sorted(data['toc_orphan'])}")
     if not args.no_open:
-        webbrowser.open("file://" + out.replace("\\", "/"))
+        # as_uri() 自动产出 file:/// 三斜杠 + 百分号编码（v7.30：路径含 #/?/& 时
+        # 裸拼 "file://"+路径会被浏览器错误解析）
+        webbrowser.open(Path(out).resolve().as_uri())
     return 0
 
 

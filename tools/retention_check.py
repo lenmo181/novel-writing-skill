@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-retention_check.py — 网络小说创作技能 v7.20 留存/结构分析（热榜研究系统·写章侧消费）
+retention_check.py — 网络小说创作技能 v7.27 留存/结构分析（热榜研究系统·写章侧消费）
 用法: python retention_check.py <本章.md|txt> [--prev 上一章.md|txt]
 输出: 【本章结构分析】+【留存风险分析】；全部为建议级（[i]/[!]），退出码 0=完成分析，2=输入错误。
 定位: 不判文学分数、不做交付闸门（硬闸门在 check_chapter.py；跨章节奏类型归 grep_consistency.py）。
@@ -126,7 +126,7 @@ def analyze(paras):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="留存/结构分析 v7.20（建议级，非交付闸门）")
+    ap = argparse.ArgumentParser(description="留存/结构分析 v7.27（建议级，非交付闸门）")
     ap.add_argument("file")
     ap.add_argument("--prev", help="上一章文件（启用跨章重复率与新词率）")
     args = ap.parse_args()

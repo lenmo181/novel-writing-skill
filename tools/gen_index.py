@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-gen_index.py — 扫描 书稿/ 生成 mind/章节目录.md（v7.4）
+gen_index.py — 扫描 书稿/ 生成 mind/章节目录.md（v7.30）
 用法: python gen_index.py [项目根目录] [--dry-run]
 
 列: 章号 | 标题 | 字数 | 节奏类型 | 校验结果 | 完成日期

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.24 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.30 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
                              [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -21,6 +21,17 @@ import re
 import sys
 from collections import Counter
 
+from config import (
+    DEFAULT_AI_SCORE_HARD_MAX,
+    DEFAULT_CHAPTER_MAX,
+    DEFAULT_CHAPTER_MIN,
+    DEFAULT_DIALOG_MAX,
+    DEFAULT_DIALOG_MIN,
+    SKILL_VERSION,
+    TITLE_MAX,
+    TITLE_MIN,
+)
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -37,9 +48,9 @@ HANZI = re.compile("[\u4e00-\u9fff\u3400-\u4dbf]")
 
 # 对话区间正则（按 --quote 口径切换，见文件头说明）
 QUOTE_MODES = ("chal", "straight", "any")
-DIALOG_MIN_DEFAULT = 15
-DIALOG_MAX_DEFAULT = 50
-AI_SCORE_HARD_MAX = 6
+DIALOG_MIN_DEFAULT = DEFAULT_DIALOG_MIN
+DIALOG_MAX_DEFAULT = DEFAULT_DIALOG_MAX
+AI_SCORE_HARD_MAX = DEFAULT_AI_SCORE_HARD_MAX
 _SPAN_CHAL = re.compile("[\u201c\u2018]([^\u201c\u2018\u201d\u2019]*)[\u201d\u2019]")
 _SPAN_STRAIGHT = re.compile("\"([^\"]*)\"")
 _SPAN_ANY = re.compile(
@@ -165,8 +176,6 @@ TITLE_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1
 # v7.10 新增：章节名机械检查口径（真源=常量表·三B）
 TITLE_PREFIX_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]\s*(.*)$")
 TITLE_SEPARATORS_RE = re.compile(r"^[·：:、\-\s]+")
-TITLE_MIN = 2   # 少于2字=无信息量，硬伤
-TITLE_MAX = 12  # 番茄目录约12字截断；超长警告
 # 全等命中即硬伤（空泛总结题；半空泛如「初入XX/XX前夕」归第28项 AI 语义核验）
 GENERIC_TITLES = {"开端", "开始", "新的开始", "新的一天", "正文", "无题",
                   "过渡", "章节", "连载", "更新", "日常", "小插曲"}
@@ -177,7 +186,9 @@ META_LINE_RE = re.compile(r"^\s*(?:章节更新时间|更新时间|本章字数|
 
 
 def load_text(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    # utf-8-sig：BOM 不剥离会使首行 ^锚定失效（TITLE_RE 不命中 → 标题计入正文、
+    # 章节名校验整体跳过）；errors=replace 防单字节坏点中断全章分析（v7.30）
+    with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
         return f.read()
 
 
@@ -192,7 +203,11 @@ def body_lines(text):
         line = raw.rstrip()
         if not line.strip():
             continue
-        if TITLE_RE.match(line) and (line.lstrip().startswith("#") or not seen_title):
+        stripped = line.lstrip()
+        # 「# 第X章」标题：剥掉 # 前缀后再按标题识别（v7.30——此前 match 目标是含 #
+        # 的原行而 TITLE_RE 要求「第」开头，条件恒假成死分支，# 标题被当格式行剔除
+        # 且「未检测到章节标题行」误报）
+        if TITLE_RE.match(stripped.lstrip("#").lstrip()) and (stripped.startswith("#") or not seen_title):
             seen_title = True
             dropped.append("章节标题: " + line.strip()[:30])
             continue
@@ -273,7 +288,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
             f"对话占比 {ratio:.1f}% > 上限 {dialog_max}%（对话剧：叙述/动作/心理要占大头）")
     elif dialog_min < 55 and ratio < 25:
         warnings.append(f"对话占比 {ratio:.1f}% 偏少（{dialog_min}-25% 警告区，健康指导 25-50%）——热榜悬疑/说书体偶见，确认非注水即可")
-    elif dialog_min < 55 and ratio > dialog_max - 5:
+    elif dialog_min < 55 and dialog_max and ratio > dialog_max - 5:
         warnings.append(f"对话占比 {ratio:.1f}% 偏高（>{dialog_max - 5}% 警告线）——补叙述、动作与内心戏")
     else:
         print(f"[✓] 对话占比 = {ratio:.1f}%（健康指导区 25-50，硬卡线 {dialog_min}-{dialog_max}，对话约 {dialog_chars} 字）")
@@ -451,12 +466,12 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
 
 def main():
     ap = argparse.ArgumentParser(
-        description="章节机械校验 v7.24（30项中的脚本13项，含章节名规范）",
+        description=f"章节机械校验 v{SKILL_VERSION}（30项中的脚本13项，含章节名规范）",
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min/--dialog-max 默认 15/50（v7.19 热榜实证 10-49%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
-    ap.add_argument("--min", type=int, default=2000, help="字数下限（默认2000，v7.19 热榜40章样本主流2000-2300）")
-    ap.add_argument("--max", type=int, default=2500, help="字数上限（默认2500）")
+    ap.add_argument("--min", type=int, default=DEFAULT_CHAPTER_MIN, help=f"字数下限（默认{DEFAULT_CHAPTER_MIN}）")
+    ap.add_argument("--max", type=int, default=DEFAULT_CHAPTER_MAX, help=f"字数上限（默认{DEFAULT_CHAPTER_MAX}）")
     ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
                     help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
     ap.add_argument("--dialog-min", type=int, default=DIALOG_MIN_DEFAULT, dest="dialog_min",

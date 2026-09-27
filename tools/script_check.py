@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-script_check.py — 网络小说创作技能 v7.21 章节剧本机械质检
+script_check.py — 网络小说创作技能 v7.27 章节剧本机械质检
 用法: python script_check.py <剧本文件.md>
 格式规范见 references/短剧剧本.md（场景头/△动作行/角色名：台词/【字幕】）；
 转换协议见 references/小说转剧本.md。退出码: 0=通过(可含警告) / 1=硬伤 / 2=输入错误。
@@ -24,7 +24,9 @@ COUNTABLE = re.compile(
 )
 HANZI = re.compile("[\u4e00-\u9fff]")
 SCENE_HEAD = re.compile(r"^\s*\u573a\u666f\s*(\d+)\s*[\uff5c|]?\s*(\u5185\u666f|\u5916\u666f)")
-DIALOG = re.compile(r"^\s*([^\u25b3\u3010\u3011\u573a\u25b2][^\uff1a:]{0,14})\uff1a(.+)$")
+# 台词分隔冒号：全角为主、半角兼容（v7.30：混用半角冒号的剧本此前整段按旁白计，
+# 对白占比被系统性低估，可能触发 45% 硬卡误判）
+DIALOG = re.compile(r"^\s*([^\u25b3\u3010\u3011\u573a\u25b2][^\uff1a:]{0,14})[\uff1a:](.+)$")
 # v7.25：「暗道」作为实体名词（沿着暗道走）不再误判心理残留——须带心理前缀（心中暗道）或
 # 后接冒号/引号（暗道："……"）才算心理描写；心想/内心/默念/暗想 保留原判
 PSYCH = re.compile("\u5fc3\u60f3|\u5fc3\u4e2d\u6697|\u5185\u5fc3|\u9ed8\u5ff5|\u6697\u60f3"
@@ -44,7 +46,7 @@ def countable_len(s):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="章节剧本机械质检 v7.21（格式/占比/心理残留/卡点）")
+    ap = argparse.ArgumentParser(description="章节剧本机械质检 v7.27（格式/占比/心理残留/卡点）")
     ap.add_argument("file")
     args = ap.parse_args()
     if not os.path.exists(args.file):

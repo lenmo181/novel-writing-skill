@@ -170,7 +170,7 @@ def scan(project, limit=200):
     project = os.path.abspath(project)
     snap_path = os.path.join(project, "mind", "角色状态快照.md")
     book_dir = os.path.join(project, "书稿")
-    issues = []
+    issues = scan_rhythm_stall(project)
 
     if not os.path.isfile(snap_path):
         print(f"[i] 未找到 {snap_path}，无法执行 A/B/C 三类检测（不推断缺失档案）")
@@ -249,9 +249,7 @@ def scan(project, limit=200):
                 f"物品「{item}」同时被 {'、'.join(uniq)} 持有",
                 "确认是否分身/复制品，否则改为单一持有人"))
 
-    # ── D 剧情推进力（排纲层打圈）──
-    issues.extend(scan_rhythm_stall(project))
-
+    # ── D 剧情推进力（排纲层打圈）已在 scan() 开头扫描（v7.25 修复重复告警）──
     return issues
 
 

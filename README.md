@@ -1,14 +1,12 @@
 # 网络小说创作技能
 
-> 当前版本：**v7.25**（2026-09-22） · 历史版本见 [`versions/`](versions/)（版本号以 SKILL.md 头部为准）
+> 当前版本：**v7.30**（2026-09-27） · 历史版本见 [`versions/`](versions/)（版本号和发布日以 `tools/config.py` 为程序真源）
 
 面向 ZCode / AI 编码助手的网文创作主力技能：把"会写小说"变成**可验证的工程流程**——机械校验脚本硬卡，不过不许交付。
 
 ## 交流群
 
 欢迎加入「冷漠网络小说科技交流群」交流写作经验、反馈问题与需求：QQ 群 **1016190748**
-
-![冷漠网络小说科技交流群二维码](https://gitee.com/yuchen0x1/novel-writing-skill/raw/main/交流群二维码.png)
 
 ## 核心能力
 
@@ -22,6 +20,10 @@
 - **工程化**：项目模板落地、mind/ 七档案 + 回顾/ 自动更新、章节目录脚本化生成（读旧表合并不覆盖既有值）、一键生成断点恢复、标准审稿卡（五维25分制）
 - **反AI防线**：禁言词库（A/B级）、AI套话库34词+AI式意象黑名单、反AI啰嗦10条、活人感规则、比喻限额（800字≤1处）、自然度合同（Gate H）、**文风样本软门禁**（有样本按样本、无样本不阻塞）、**朱雀AI文本线上检测（v7.5，可选，v7.8 起百分制）**——腾讯 AIGC 检测模型定量复核（人类分 ≥90 达标、80-89 警告、<80 禁止交付）+ AI 味最重分段定位，交 8 Gate 定向改写；**全书批量检测+修复循环**（`--book` 报告落盘、`--only` 只重测未达标章）；未配 Key 不阻塞
 - **连载记忆（v7.3）**：三层回顾归档（单章微型→阶段合并）+信息差矩阵+伏笔生命周期+连续性审计15项；润色扩写配方库（控幅扩写/对症润色/两段衔接/降重/回填大纲）；设定优先级链+扩写权限白名单
+- **开源能力融合（v7.27）**：吸收公开项目的持久状态、阶段化流水线、事件账本、上下文构建、快照/差异审阅和本地优先原则；新增项目体检、连续性检查、上下文包、章节差异和安全快照五个纯标准库工具，全部只读或可回滚，不直接复制第三方代码。
+- **安全更新（v7.28）**：新增 SkillHub 版本检测与安全更新器；支持确认更新/自动更新、ZIP 安全校验、更新前备份、失败回滚和 JSON 输出，不触碰小说项目目录。
+- **评测增强（v7.28，本地未发布）**：新增 `tools/doctor.py` 统一只读自检与《操作范例》产出契约，覆盖安装完整性、版本/语法/引用检查，以及新书、旧稿、审校、技能更新四条端到端范例。
+- **路由增强（v7.28，本地未发布）**：新增《模式操作卡》，把触发词、最小输入、执行级别、可写范围、停靠条件和完成标准统一成 9 类流程卡；`doctor.py` 增加运行级与打包安装冒烟测试。
 
 ## 目录结构
 
@@ -34,6 +36,14 @@
 │   ├── script_check.py             # 章节剧本机械质检
 │   ├── fix_said_tags.py            # 对话引导语批量修复
 │   ├── visualize.py                # 生成可视化看板
+│   ├── project_audit.py             # 项目骨架/章节编号/目录进度/剧本覆盖体检
+│   ├── continuity_check.py          # 角色/伏笔/时间线/目录标题/回顾覆盖检查
+│   ├── context_pack.py              # 生成带来源 SHA-256 的续写上下文包
+│   ├── chapter_diff.py              # 章节版本差异与大删风险报告
+│   ├── snapshot_project.py          # 大修前项目快照与 manifest
+│   ├── update_skill.py              # SkillHub 版本检测与安全更新
+│   ├── doctor.py                    # 安装后统一自检（结构/版本/语法/引用）
+│   ├── release_check.py             # 发布前只读预检（本地验证，不上传）
 │   ├── zhuque_check.py             # 朱雀AI文本线上检测（可选；阈值判定 + AI味分段定位 + --book全书模式）
 │   ├── mochi_check.py              # 墨尺本地AI味检测（朱雀兜底；0-10分+短板指标 + --book全书模式）
 │   ├── cover_check.py              # 封面机械质检（尺寸/比例/体积/落盘纪律，纯标准库）
@@ -47,12 +57,25 @@
 │   ├── 扫榜.md / 拆文.md / 导入旧书.md
 │   ├── 审校.md / 去AI味.md / 封面.md（六步执行协议+双层质检）
 │   ├── 连载记忆.md / 润色扩写.md / 无人值守.md / 热榜研究.md / 热榜知识库.md / 小说转剧本.md
+│   ├── 开源融合.md                 # 开源项目能力矩阵、许可证防线与融合工作流
+│   ├── 技能更新.md                 # SkillHub 更新检测、备份、回滚与授权边界
+│   ├── 快速开始.md                 # 首次使用、最小输入与端到端示例
+│   ├── 操作范例.md                 # 高频请求的输入、动作链、回执与停靠点
+│   ├── 模式操作卡.md               # 9 类主流程的触发、输入、权限、停靠与交付标准
+│   ├── 评测场景.md                 # 16 个自然语言回归场景与越权边界
+│   ├── 评测量表.md                 # T/R/A/C/E 五维本地评分标准
+│   ├── 回执协议.md                 # 统一状态、变更、证据、权限与下一步格式
+│   └── 常见问题.md                 # 闪退/报错、项目恢复与更新故障排查
 └── versions/                      # 历史版本完整存档（只读，不参与扫描）
 ```
 
 ## 用法
 
-ZCode 用户：放到 `~/.zcode/skills/网络小说创作技能/`，对 AI 说"初始化项目"即可。
+Codex 用户：将技能目录同步到 `~/.codex/skills/网络小说创作技能/`；推荐运行 `powershell -ExecutionPolicy Bypass -File tools/sync_skill.ps1`。其他宿主请用 `-Destination` 指定技能目录。安装后对 AI 说“初始化项目”即可。
+
+首次使用先看 [`references/快速开始.md`](references/快速开始.md)。如果出现闪退、报错、找不到项目、断点恢复或更新失败，按 [`references/常见问题.md`](references/常见问题.md) 的现象表处理；安装后先运行 `python tools/doctor.py`，再运行 `python tools/lint_skill.py` 和 `python tools/check_refs.py`。
+
+运行时路径优先级：用户显式指定项目根目录 > 环境变量 `NOVEL_PROJECT_ROOT` > `~/.codex/workspace/novels/`。技能包不再依赖具体用户名或旧宿主目录。
 
 章节校验：
 
@@ -69,15 +92,39 @@ python tools/check_chapter.py "书稿/第001章_章节名.md"
 python tools/gen_index.py "<项目根>"     # 生成/更新 mind/章节目录.md（保留既有校验结果与日期）
 python tools/conflict_score.py --demo    # 冲突值权重表与算例
 python tools/check_refs.py               # 技能包内引用完整性（退出码 0/1）
+python tools/lint_skill.py               # 版本/默认值/路径/引用一致性检查
+python tools/doctor.py                  # 安装后统一自检：结构/版本/语法/引用
+python tools/doctor.py --json            # 输出机器可读自检报告
+python tools/doctor.py --runtime-smoke   # 启动核心工具入口做运行级冒烟测试
+python tools/doctor.py --package-smoke   # 临时打包、解压并自检安装副本
+python tools/eval_skill.py               # 校验 16 个本地评测场景
+python tools/eval_skill.py --json        # 输出评测矩阵 JSON
+python tools/release_check.py --tests    # 发布前预检：质量门、评测、lint、引用、回归测试
+python tools/release_check.py --installed "$HOME/.codex/skills/网络小说创作技能"  # 比对安装副本
+python -m unittest discover -s tests -p "test_*.py"  # 回归测试
 python tools/grep_consistency.py "<项目根>"   # 四类硬矛盾（含推进力打圈D类）告警（退出码恒 0）
 python tools/visualize.py "<项目根>"          # 生成并打开可视化看板 看板.html（九分区含正文阅读：全文内嵌/续读记忆/翻章/主题/全文搜索，--no-open 只生成）
+python tools/project_audit.py "<项目根>"      # 项目结构体检：目录、章节编号、目录进度、剧本覆盖
+python tools/continuity_check.py "<项目根>"   # 连续性检查：角色、伏笔、时间线、标题、回顾覆盖
+python tools/context_pack.py "<项目根>" --chapter 12 --out "<项目根>/mind/上下文包_第12章.md"
+python tools/chapter_diff.py "旧章.md" "新章.md" --out "<项目根>/mind/第12章差异.md"
+python tools/snapshot_project.py "<项目根>" --label before-rewrite
+```
+
+技能更新：
+
+```powershell
+python tools/update_skill.py --check        # 只检查，不下载
+python tools/update_skill.py --update       # 检查后询问确认再更新
+python tools/update_skill.py --auto         # 明确授权后的自动更新
+python tools/update_skill.py --check --json # 输出机器可读结果
 ```
 
 **朱雀AI检测**（可选，先在 EdgeOne 控制台 → Makers → Models → API Key 创建 Key，每月免费 50 万 token）：
 
-```bash
-set ZHUQUE_API_KEY=<你的Key>
-python tools/zhuque_check.py "书稿/第001章_章节名.md"   # 单章：人类分（人工占比）≥90 达标，<80 禁止交付
+```powershell
+$env:ZHUQUE_API_KEY = "<你的Key>"
+python tools/zhuque_check.py "书稿/第001章_章节名.md" --allow-external  # 明确同意把正文发送至第三方检测服务
 python tools/zhuque_check.py --book "<项目根>"          # 全书：扫 书稿/，报告落盘 mind/朱雀检测报告.md
 python tools/zhuque_check.py --book "<项目根>" --only 3,7-12   # 修复后只重测未达标章
 # v7.8 统一百分制人类分≥90才能交付；超标自动列 AI 味最重分段；未配 Key 不阻塞；退出码 3=API失败不触发闸门
@@ -85,15 +132,35 @@ python tools/zhuque_check.py --book "<项目根>" --only 3,7-12   # 修复后只
 
 **墨尺本地检测**（v7.7，朱雀额度用尽的兜底；MIT 纯标准库，零额度零依赖）：
 
-```bash
+```powershell
 git clone https://github.com/yycqyjq/mochi-ruler.git
-setx MOCHI_RULER_DIR <墨尺仓库路径>                      # 配好后脚本自动启动本地服务
+$env:MOCHI_RULER_DIR = "<墨尺仓库路径>"                  # 当前 PowerShell 会话立即生效
 python tools/mochi_check.py "书稿/第001章_章节名.md"      # 单章：人类分=total×10 ≥90 达标，<80 禁止交付
 python tools/mochi_check.py --book "<项目根>" --only 3,7-12   # 全书/重测，报告落盘 mind/墨尺检测报告.md
 # v7.8 统一百分制人类分≥90才能交付；输出短板指标（40项最低前5）定向改写；服务未起且未配置 → 退出码2不阻塞
 ```
 
 ## 版本历史（摘要）
+
+- **v7.30（2026-09-27）：第三轮全面审计发布版**——逐行复核全部 24 个工具脚本，实测修复 17 项缺陷：修稿工具不再把「他对她说」删成残句（GBK 章跳过+原子写回防丢稿）；吃书检测 A 类窗口改为「最后出场之后」（长书死亡复活不再漏检）；朱雀/墨尺缺键不再误判 0 分、删章后旧报告行自动剔除；`#` 标题/BOM/中文数字章号/半角冒号台词等口径修复；看板遇编码坏文件不再崩、同名项目阅读记忆隔离；新增 25 项回归测试（全套 89 项全绿）。
+
+- **v7.29（2026-09-24）：发布版**——补齐纯文字交流群公告，移除二维码图片依赖；承接 v7.28 的入口、恢复、评测与安全更新能力，发布包统一升为 v7.29.0。
+
+- **v7.28 入口优化**：新增《快速开始》和《常见问题》，并接入主路由、目录、lint 与回归测试，覆盖首次使用、退出码、闪退/报错恢复、断点续写和更新失败处理。
+
+- **v7.28**：新增 SkillHub 版本检测与安全更新器，支持 ZIP 安全校验、更新前备份、失败回滚和明确授权的自动更新。
+
+- **v7.28（本地增强，未发布，2026-09-24）**：新增 `tools/doctor.py` 统一只读自检与《操作范例》产出契约；补齐新书、旧稿、审校、技能更新的端到端示例，统一“状态—变更—证据—下一步”回执，减少安装异常和交付边界歧义。
+
+- **v7.28（本地增强，未发布，2026-09-24）**：新增《模式操作卡》与复合请求判定协议；`doctor.py` 新增 20 个工具入口运行级冒烟、ZIP 打包解压冒烟和受控退出码验证。
+
+- **v7.28（本地增强，未发布，2026-09-24）**：新增 16 个自然语言评测场景，覆盖主路由、权限边界、停靠条件、隐私授权和更新回滚，为后续 SkillHub 重新评测提供可重复的本地基线。
+
+- **v7.28（本地增强，未发布，2026-09-24）**：新增《评测量表》和 `tools/eval_skill.py`，将 T/R/A/C/E 五维目标转为可重复的本地矩阵校验，支持文本/JSON 输出。
+
+- **v7.27**：综合公开开源小说工具的可迁移工作流，新增《开源融合》手册和五个纯标准库工具：项目体检、档案连续性检查、带 SHA-256 的上下文包、章节版本差异与10%大删预警、项目安全快照；写章前、接手旧书、大修和批量改稿全部增加可追溯与可回滚闭环。
+
+- **v7.26**：修复 Codex/ZCode 路径漂移、PowerShell 环境变量失效、`--dialog-min` 文档默认值冲突和工具版本漂移；新增 `config.py`、`lint_skill.py`、`sync_skill.ps1` 与《运行时兼容.md》；写章流程改为快速/标准/深度三级；朱雀、生图等外部服务改为明确同意后调用。
 
 - **v7.25**：**全链路修复与防线收紧（第二轮全面审计落地）**——修稿工具保留引号后正文+备份永不覆盖（防丢文）；朱雀/墨尺 NaN/越界评分按检测失败处理、旧结论按本轮阈值重判、报告「较上轮」统一按人类分计；校验补盲（后缀「”他说。」逐行匹配/正文叙述行不再被当标题剔除/剧本「暗道」实体词不误判/留存分析空文件受控）；看板与目录工具健壮性修复；文档统一「≥90 达标/80-89 警告过闸/<80 禁止」口径；新增 `tests/` 回归测试套件。
 

@@ -9,10 +9,12 @@ fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.1
   --meta      同时删除元信息残留行（章节更新时间/字数统计等）
 只处理中文弯引号（“”）书稿；无引号对白流（千门系）禁止使用本工具——其"他说，"为风格合法对话标记。
 修复规则（对齐 SKILL.md 对话归位六式）:
-  1) 光杆前缀「他说，“Q”」「他说：“Q”」→ 删标签留引号
+  1) 光杆前缀「他说，“Q”」「他说：“Q”」→ 删标签留引号（引号后的正文原样保留，v7.25 修复）
   2) 带修饰语「他压低声音说，“Q”」→「他压低声音。“Q”」（说转句号，零信息损失）
   3) 独立标签行「他又说。」→ 删行（结构词又/再/接着视同光杆）；带修饰语则转动作句保留
   4) 后缀「”他说。」→ 删后缀；带修饰语「”他压低声音说道。」→「”他压低声音。」（说道转句号，修饰语保留）
+备份: 默认备份到 <目录>/../mind/大修备份/修复原稿/；同名备份已存在时另存时间戳副本
+      （首轮备份永不覆盖，重复修复可逐轮回滚，v7.25）
 退出码: 0=完成
 """
 import argparse
@@ -21,6 +23,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime
 
 NL = chr(10)
 STRUCT = ("又", "再", "接着", "然后")
@@ -59,11 +62,12 @@ def process_line(ln, stat):
         m = SAME.match(s)
         if m:
             mod = m.group(2)
+            tail = s[m.end():]  # 引号后的正文必须原样保留（v7.25 修复：此前被静默截断）
             if mod and mod not in STRUCT:
-                out.append(_beat(m.group(1), mod) + m.group(5))
+                out.append(_beat(m.group(1), mod) + m.group(5) + tail)
                 stat[3] += 1
             else:
-                out.append(m.group(5))
+                out.append(m.group(5) + tail)
                 stat[0] += 1
             continue
         m = END_TAG.search(s)
@@ -144,7 +148,18 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
     if changed and not dry:
         if backup_dir:
             os.makedirs(backup_dir, exist_ok=True)
-            shutil.copy2(path, os.path.join(backup_dir, os.path.basename(path)))
+            dst = os.path.join(backup_dir, os.path.basename(path))
+            if os.path.exists(dst):
+                # 首轮备份不覆盖（v7.25）：后续每轮另存带时间戳副本，保证最初原稿可回滚
+                stem, ext = os.path.splitext(dst)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                cand = f"{stem}_{ts}{ext}"
+                n = 2
+                while os.path.exists(cand):
+                    cand = f"{stem}_{ts}_{n}{ext}"
+                    n += 1
+                dst = cand
+            shutil.copy2(path, dst)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
     return stat[0], stat[1], stat[2], stat[3], n_meta, n_wall, changed

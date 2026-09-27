@@ -8,15 +8,16 @@ import os, re, shutil, zipfile, subprocess, sys
 
 ROOT = r"C:\Users\lenmo\Desktop\网络小说创作技能"
 SKILL_NAME = "网络小说创作技能"
-VER = "7.25.0"
-STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage")
+VER = "7.30.0"
+STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.30")
 STAGE = os.path.join(STAGE_ROOT, SKILL_NAME)
 DIST = os.path.join(ROOT, "dist")
-ZIP_PATH = os.path.join(DIST, "%s_v%s_market.zip" % (SKILL_NAME, VER))
+ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
-                ".idea", ".vscode", "dist", "out", "tests"}
-EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store"}
+                ".idea", ".vscode", ".playwright-cli", "dist", "out", "tests"}
+EXCLUDE_FILES = {".gitignore", "LICENSE", "Thumbs.db", ".DS_Store"}
+EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXT = {".md", ".py", ".txt", ".json", ".yaml", ".yml", ".sh", ".html",
             ".js", ".ts", ".css", ".csv", ".bat", ".ps1"}
 
@@ -62,7 +63,7 @@ for dp, dns, fns in os.walk(ROOT):
     else:
         dns[:] = [d for d in dns if d not in EXCLUDE_DIRS]
     for fn in fns:
-        if fn in EXCLUDE_FILES or fn.endswith(".pyc"):
+        if fn in EXCLUDE_FILES or fn.endswith(".pyc") or os.path.splitext(fn)[1].lower() in EXCLUDE_EXTENSIONS:
             continue
         src = os.path.join(dp, fn)
         relp = os.path.relpath(src, ROOT)

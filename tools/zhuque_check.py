@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-zhuque_check.py — 网络小说创作技能 v7.5 朱雀AI文本线上检测
+zhuque_check.py — 网络小说创作技能 v7.30 朱雀AI文本线上检测
 API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图片暂不支持）
      POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify
 单章: python zhuque_check.py <章节文件.md|txt> [--threshold 90] [--warn 80]
@@ -10,6 +10,7 @@ API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图
      扫 <项目根>/书稿/ 逐章检测（章号识别口径与 gen_index.py 一致），
      报告落盘 <项目根>/mind/朱雀检测报告.md（含轮次/上轮对比/待修复清单/重点分段）。
      --only 用于修复后只重测指定章（省额度）。
+     外部发送保护：必须显式传 --allow-external，确认正文可发送至第三方检测服务。
 Key 来源: --key 参数 > 环境变量 ZHUQUE_API_KEY。
      Key 在 EdgeOne 控制台 → Makers → Models → API Key 页面创建；每月免费额度 50 万 token。
 判定: human_score = 人工占比×100（百分制「人类分」=100−AI%−疑似%）
@@ -31,6 +32,8 @@ import time
 import urllib.error
 import urllib.request
 
+from config import DEFAULT_ZHUQUE_THRESHOLD, DEFAULT_ZHUQUE_WARN, SKILL_VERSION
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -51,12 +54,16 @@ LABEL_NAMES = {0: "人工", 1: "AI", 2: "疑似AI"}
 
 
 def _ratio_pct(labels_ratio, key):
-    """labels_ratio[key]（0-1 小数）→ 百分数；非数字/NaN/越界一律抛 ValueError（v7.25：
-    此前 NaN 会因比较恒为假而落进「通过」分支，人工占比 2 直接显示人类分 200）。"""
+    """labels_ratio[key]（0-1 小数）→ 百分数；非数字/NaN/越界/缺键一律抛 ValueError（v7.25：
+    此前 NaN 会因比较恒为假而落进「通过」分支，人工占比 2 直接显示人类分 200；
+    v7.30：缺键/null 此前默认 0 → 人类分 0 被误判「禁止交付」，现归检测失败）。"""
+    raw = labels_ratio.get(key)
+    if raw is None:
+        raise ValueError(f"labels_ratio 缺少 [{key}] 键（现有键：{sorted(labels_ratio)}）")
     try:
-        v = float(labels_ratio.get(key, 0) or 0)
+        v = float(raw)
     except (TypeError, ValueError):
-        raise ValueError(f"labels_ratio[{key}] 不是数字：{labels_ratio.get(key)!r}")
+        raise ValueError(f"labels_ratio[{key}] 不是数字：{raw!r}")
     if not math.isfinite(v) or not 0 <= v <= 1:
         raise ValueError(f"labels_ratio[{key}] 超出 0-1 范围：{v}")
     return v * 100
@@ -259,7 +266,9 @@ def write_report(path, rnd, rows, threshold, warn):
         lines.append("## 检测失败（未检出≠超标，排查后 --only 重测）")
         lines.append("")
         for r in err_list:
-            lines.append(f"- 第{r['num']}章 {r['title']}")
+            # 失败原因一并落报告（v7.30：此前只打控制台，事后排查丢信息）
+            reason = f"（原因：{r['err']}）" if r.get("err") else ""
+            lines.append(f"- 第{r['num']}章 {r['title']}{reason}")
     if not fix_list and not err_list:
         lines.append("## 待修复清单")
         lines.append("")
@@ -283,6 +292,7 @@ def run_book(args, key):
     if args.only and only is None:
         print(f"[✗] --only 格式不对：{args.only}（示例：3,7-12）")
         return 2
+    all_nums = {c[0] for c in chapters}  # 幽灵章过滤基准：书稿现存章号全集
     if only:
         chapters = [c for c in chapters if c[0] in only]
         if not chapters:
@@ -293,8 +303,14 @@ def run_book(args, key):
     prev_rnd, prev_map, prev_rows = load_prev_report(report_path)
     rnd = prev_rnd + 1
     tested = {c[0] for c in chapters}
-    # 重测轮：未重测的章沿用上一轮数据，保证报告始终是全书最新视图
-    rows = [prev_rows[num] for num in sorted(prev_rows) if num not in tested]
+    # 重测轮：未重测的章沿用上一轮数据，保证报告始终是全书最新视图；
+    # 已删/改号章的旧行一并剔除（v7.30 幽灵章：此前被永久复用，fail 旧结论
+    # 让退出码卡在 1，且 --only 无法命中，只能手改报告）
+    ghosts = [num for num in sorted(prev_rows) if num not in tested and num not in all_nums]
+    rows = [prev_rows[num] for num in sorted(prev_rows)
+            if num not in tested and num in all_nums]
+    if ghosts:
+        print(f"[i] 上轮报告中第 {'、'.join(str(n) for n in ghosts)} 章已不在书稿里，旧结论剔除")
     n_err = 0
     print(f"[i] 朱雀全书检测 第{rnd}轮：本轮检测 {len(chapters)} 章"
           f"（阈值{args.threshold:g}%/警告线{args.warn:g}%"
@@ -364,7 +380,7 @@ def run_book(args, key):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="朱雀AI文本线上检测 v7.5（EdgeOne Makers @makers/zhuque-text）",
+        description=f"朱雀AI文本线上检测 v{SKILL_VERSION}（EdgeOne Makers @makers/zhuque-text）",
         epilog="Key: --key 或环境变量 ZHUQUE_API_KEY（EdgeOne 控制台 Makers → Models → API Key 创建）。"
                "退出码 0=通过 / 1=超标禁止交付 / 2=输入或配置错误 / 3=API或网络错误。")
     ap.add_argument("file", nargs="?", help="章节文件（.md/.txt）；与 --book 二选一")
@@ -372,9 +388,9 @@ def main():
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/朱雀检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12），省额度")
     ap.add_argument("--delay", type=float, default=1.0, help="全书模式章节间隔秒数（默认1）")
-    ap.add_argument("--threshold", type=_percent_arg, default=90,
+    ap.add_argument("--threshold", type=_percent_arg, default=DEFAULT_ZHUQUE_THRESHOLD,
                     help="人类分达标线%%（默认90，真源=常量表·六；0-100 有限数）")
-    ap.add_argument("--warn", type=_percent_arg, default=80,
+    ap.add_argument("--warn", type=_percent_arg, default=DEFAULT_ZHUQUE_WARN,
                     help="人类分警告线%%（默认80；0-100 有限数）")
     ap.add_argument("--segments", type=int, default=5,
                     help="超标/警告时展示 AI 味最重的前 N 个分段（默认5，0=不展示）")
@@ -382,6 +398,8 @@ def main():
                     help="段落独立检测（is_merge=false，逐段出置信度；默认合并整体判）")
     ap.add_argument("--timeout", type=int, default=30, help="请求超时秒数（默认30）")
     ap.add_argument("--key", default="", help="API Key（不传则读环境变量 ZHUQUE_API_KEY）")
+    ap.add_argument("--allow-external", action="store_true",
+                    help="确认允许把纯正文发送至配置的第三方检测服务")
     ap.add_argument("--json", action="store_true", help="打印接口原始 JSON 响应")
     args = ap.parse_args()
 
@@ -392,6 +410,10 @@ def main():
         return 2
     if args.warn > args.threshold:
         print(f"[✗] 输入错误：警告线 {args.warn:g} 不能高于达标线 {args.threshold:g}")
+        return 2
+
+    if not args.allow_external:
+        print("[✗] 外部发送未获确认：如允许把正文发送至第三方检测服务，请显式传 --allow-external")
         return 2
 
     key = args.key or os.environ.get(KEY_ENV, "")

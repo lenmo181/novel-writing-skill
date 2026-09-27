@@ -25,7 +25,11 @@ COUNTABLE = re.compile(
 HANZI = re.compile("[\u4e00-\u9fff]")
 SCENE_HEAD = re.compile(r"^\s*\u573a\u666f\s*(\d+)\s*[\uff5c|]?\s*(\u5185\u666f|\u5916\u666f)")
 DIALOG = re.compile(r"^\s*([^\u25b3\u3010\u3011\u573a\u25b2][^\uff1a:]{0,14})\uff1a(.+)$")
-PSYCH = re.compile("\u5fc3\u60f3|\u6697\u9053|\u5fc3\u4e2d\u6697|\u5185\u5fc3|\u9ed8\u5ff5|\u6697\u60f3")
+# v7.25：「暗道」作为实体名词（沿着暗道走）不再误判心理残留——须带心理前缀（心中暗道）或
+# 后接冒号/引号（暗道："……"）才算心理描写；心想/内心/默念/暗想 保留原判
+PSYCH = re.compile("\u5fc3\u60f3|\u5fc3\u4e2d\u6697|\u5185\u5fc3|\u9ed8\u5ff5|\u6697\u60f3"
+                   "|(?:\u5fc3\u4e2d|\u5fc3\u91cc|\u6697\u81ea|\u6697\u6697)\u6697\u9053"
+                   "|\u6697\u9053[\uff1a\u201c]")
 NARR = re.compile(r"^\s*\u3010\u65c1\u767d\u3011|^\s*\u65c1\u767d\uff1a")
 MAX_NARR = 2        # 旁白每章上限（小说转剧本·二）
 MAX_SUBTITLE = 2    # 【字幕】每章上限
@@ -126,7 +130,7 @@ def main():
         warnings.append("末场景无台词卡点——每集结尾必须画面+台词双钩（卡点铁律）")
     if tail_is_action:
         warnings.append("文件以动作/描述行收尾——尾行应为台词或【字幕】强卡点")
-    if PSYCH.search("".join(lines)):
+    if any(PSYCH.search(l) for l in lines):  # 逐行匹配，防跨行拼接误命中（v7.25）
         failures.append("检出心理描写残留（心想/暗道/内心/默念）——剧本心理必须全部外化（动作+台词）")
     if subtitle_cnt > MAX_SUBTITLE:
         warnings.append(f"【字幕】{subtitle_cnt} 处 > 上限 {MAX_SUBTITLE}")

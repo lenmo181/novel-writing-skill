@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.17，弯引号流专用）
+fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.30，弯引号流专用）
 用法:
   python fix_said_tags.py <书稿目录> [--dry-run] [--no-backup] [--walls] [--meta]
   --dry-run   只统计与抽样展示，不写文件
@@ -27,15 +27,19 @@ from datetime import datetime
 
 NL = chr(10)
 STRUCT = ("又", "再", "接着", "然后")
-MOD_CH = r"[^，。：”“\n的话着]"
+# 修饰语字符类（v7.30 收紧）：排除介词（对向跟和与给往朝冲）、否定（没不别莫）、
+# 「什么」的什、人称（你我）——此前「”他对她说，“Q”」里「对她」被当修饰语，
+# 动词「说」被删产出「他对她。」残句；「他没说什么」被反转成「他没什么。」。
+# 这类介词/否定短语整体落不进匹配 → 保守保留原文，交人工处理。
+MOD_CH = r"[^，。：”“\n的话着你我对向跟和与给往朝冲没不别莫什被把]"
 # 行中连接处：”他说，“Q2” → ”换行“Q2”（拆成两段，热榜式裸引号）
-JUNC = re.compile(r"(”)\s*([他她它])(" + MOD_CH + "{0,4}?)(说道?)([，。：]?)\s*(“)")
+JUNC = re.compile(r"(”)\s*([他她它])(" + MOD_CH + r"{0,4}?)(说道?)([，。：]?)\s*(“)")
 # 行首前缀：他说，“Q” → “Q”
-SAME = re.compile(r"^([他她它])(" + MOD_CH + "{0,4}?)(说道?)([，。：]?)\s*(“[^”]*”)")
+SAME = re.compile(r"^([他她它])(" + MOD_CH + r"{0,4}?)(说道?)([，。：]?)\s*(“[^”]*”)")
 # 独立标签行
-LINE_TAG = re.compile(r"^([他她它])(" + MOD_CH + "{0,4}?)(说道?)([，。：]?)$")
+LINE_TAG = re.compile(r"^([他她它])(" + MOD_CH + r"{0,4}?)(说道?)([，。：]?)$")
 # 行尾后缀：……。”他说。→ 删后缀
-END_TAG = re.compile(r"(”)\s*([他她它])(" + MOD_CH + "{0,4}?)(说道?)([，。：]?)\s*$")
+END_TAG = re.compile(r"(”)\s*([他她它])(" + MOD_CH + r"{0,4}?)(说道?)([，。：]?)\s*$")
 
 
 def _beat(pron, mod):
@@ -95,8 +99,16 @@ def process_line(ln, stat):
 
 
 def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
+    try:
+        # utf-8-sig：带 BOM 的文件首行 ^锚定才不失效（BOM 字符会让首行标签漏修）
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        # 非 UTF-8（如 GBK）章节：绝不带 errors=replace 硬读——读成乱码再写回会把
+        # 原文永久破坏。跳过该章，交人工转码后重跑（v7.30）。
+        print(f"[!] 跳过 {os.path.basename(path)}：读取失败（{e.__class__.__name__}）——"
+              f"非 UTF-8 编码或不可读，请先转存 UTF-8 再跑本工具")
+        return 0, 0, 0, 0, 0, 0, False
     orig = text
     stat = [0, 0, 0, 0]
     out_lines = []
@@ -133,8 +145,11 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
                     elif not in_q:
                         outside.add(i)
                 mid = len(ln) // 2
+                # 切点判定看标点本身（m.end()-1）是否在引号 span 外——
+                # 此前判 m.end()（标点后一字符），句号后紧跟 “ 时该位不在引号外
+                # 集合里，合法切点被误拒，部分文字墙拆不掉（v7.30）
                 cuts = [m.end() for m in re.finditer(r"[。！？；]", ln)
-                        if m.end() in outside and abs(m.end() - mid) <= 60]
+                        if m.end() - 1 in outside and abs(m.end() - mid) <= 60]
                 if cuts:
                     cut = min(cuts, key=lambda x: abs(x - mid))
                     parts.append(ln[:cut])
@@ -160,8 +175,20 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
                     n += 1
                 dst = cand
             shutil.copy2(path, dst)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
+        # 原子写回（v7.30）：先写临时文件再 os.replace——此前直接截断式重写，
+        # 写入中途崩溃/断电会把工作文件留在半写状态；--no-backup 时原文不可恢复
+        tmp = path + ".tmpfix"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(text)
+            os.replace(tmp, path)
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            print(f"[!] 写回失败 {os.path.basename(path)}（{e}），本轮该章未落盘")
+            return 0, 0, 0, 0, n_meta, n_wall, False
     return stat[0], stat[1], stat[2], stat[3], n_meta, n_wall, changed
 
 

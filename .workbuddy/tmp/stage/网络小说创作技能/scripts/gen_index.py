@@ -10,7 +10,8 @@ gen_index.py — 扫描 书稿/ 生成 mind/章节目录.md（v7.4）
     读旧表 → 按章号合并 → 只补缺省行
     · 已存在的「校验结果」「完成日期」等单元格值一律原样保留，绝不覆盖
     · 新章号才新增行；旧表出现而书稿已删的章号保留不动（只提示）
-    · 末尾「当前进度」行保留旧值；旧表无此行时按最大章号生成
+    · 末尾「当前进度」行的进度数字按书稿刷新，附加信息（如「待办：…」）原样保留；
+      旧进度章号大于书稿实际最大章号时整行保留旧值并提示
 
 字数口径复用 check_chapter.count_chars（纯正文，排除章节标题行与格式行）。
 退出码: 0=正常, 1=输入错误（书稿/ 不存在或无章节文件）
@@ -170,13 +171,20 @@ def build(project, dry_run=False):
 
     vanished = sorted(set(old_rows) - seen)
     if vanished:
-        print(f"[!] 旧表中有 {len(vanished)} 个章号在 书稿/ 中找不到对应文件，未删除旧行: "
+        print(f"[!] 旧表中有 {len(vanished)} 个章号在 书稿/ 中找不到对应文件，保留旧行: "
               + "、".join(f"第{n}章" for n in vanished[:10])
               + ("…" if len(vanished) > 10 else ""))
+        for num in vanished:
+            old = old_rows[num]
+            row = {c: old.get(c, "") for c in cols}
+            row["章号"] = str(num)
+            rows.append(row)
+        rows.sort(key=lambda r: int(r["章号"]))
 
     max_num = max(n for n, _, _ in chapters)
-    # 进度行是派生数据（非受保护单元格）：按最新章节数刷新；
-    # 仅当旧进度记录的章号**大于**书稿实际最大章号时保留旧值（说明有章未落盘）并提示。
+    # 进度行是派生数据：进度数字按最新章节数刷新；行内附加信息（如「待办：…」）原样保留
+    # （v7.25 修复：此前重建会吃掉「；待办：…」尾巴）。仅当旧进度记录的章号**大于**书稿实际
+    # 最大章号时整行保留旧值（说明有章未落盘）并提示。
     old_done = None
     if old_progress:
         m = re.search(r"已完成至第\s*(\d+)\s*章", old_progress)
@@ -187,6 +195,12 @@ def build(project, dry_run=False):
         progress = old_progress
     else:
         progress = f"当前进度：已完成至第{max_num}章，下一章为第{max_num + 1}章"
+        if old_progress:
+            m2 = re.search(r"下一章为第\s*\d+\s*章", old_progress)
+            if m2:
+                extra = old_progress[m2.end():].strip()
+                if extra:
+                    progress += extra if extra.startswith(("；", ";")) else "；" + extra
 
     lines = ["# 章节目录", "",
              "| " + " | ".join(cols) + " |",

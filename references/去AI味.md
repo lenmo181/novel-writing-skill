@@ -62,11 +62,11 @@
 
 **何时跑**（配置 Key 后，未配置则整体跳过不阻塞）：开篇前 3 章、高潮章、付费转化章；本地 AI味指数 ≥4 的章节；平台严打 AIGC 期间逐章跑。
 
-**怎么跑**（Key 在 EdgeOne 控制台 → Makers → Models → API Key 创建，每月免费 50 万 token）：
+**怎么跑**（Key 由用户自行配置；调用前必须确认正文可以发送到该第三方服务）：
 
-```bash
-set ZHUQUE_API_KEY=<你的Key>    # 或 --key 传入
-python tools/zhuque_check.py "书稿/第001章_章节名.md"
+```powershell
+$env:ZHUQUE_API_KEY = "<你的Key>"  # 或 --key 传入；Bash 用 export
+python tools/zhuque_check.py "书稿/第001章_章节名.md" --allow-external
 ```
 
 **结果解读**（v7.8 起统一百分制：**人类分 = 人工占比×100 ≥90 才能交付**；阈值真源=常量表·六）：
@@ -95,7 +95,7 @@ python tools/zhuque_check.py "书稿/第001章_章节名.md"
 
 ```bash
 git clone https://github.com/yycqyjq/mochi-ruler.git   # MIT，纯标准库，无需 pip
-setx MOCHI_RULER_DIR <墨尺仓库路径>                      # 配好后脚本可自动启动服务
+$env:MOCHI_RULER_DIR = "<墨尺仓库路径>"                  # PowerShell 当前会话；Bash 用 export
 ```
 
 **怎么跑**（服务连 127.0.0.1:8765；没起且配了 MOCHI_RULER_DIR 会自动拉起）：

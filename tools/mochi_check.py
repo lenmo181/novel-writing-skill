@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mochi_check.py — 网络小说创作技能 v7.24 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
+mochi_check.py — 网络小说创作技能 v7.30 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
 工具: 墨尺 mochi-ruler（github.com/yycqyjq/mochi-ruler，MIT，纯标准库本地服务）
      评分 0-10、**越高越像真人**（注意：与朱雀 ai_pct / AI味指数方向相反）
 用法: python mochi_check.py <章节文件.md|txt> [--min 9] [--floor 8] [--top 5]
@@ -26,7 +26,10 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+
+from config import DEFAULT_MOCHI_FLOOR, DEFAULT_MOCHI_MIN, SKILL_VERSION
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -66,8 +69,10 @@ def parse_only(spec):
 
 def ensure_server(base_url, timeout=10.0):
     """探测墨尺服务；没起且 MOCHI_RULER_DIR 可用则自动启动。成功返回 None，失败返回原因 str。"""
-    host = base_url.split("//")[-1]
-    port = host.split(":")[1] if ":" in host else "8765"
+    # 端口严格按 URL 解析（v7.30：此前字符串切分会把 host:8765/path 的端口切成
+    # "8765/path" 传给 server.py；无端口 URL 静默回退 8765，但探测走 base_url 的
+    # 默认端口，自动起的服务永远探不通 → 超时误报）
+    port = urllib.parse.urlsplit(base_url).port
 
     def alive():
         try:
@@ -80,13 +85,17 @@ def ensure_server(base_url, timeout=10.0):
 
     if alive():
         return None
+    if port is None:
+        return (f"墨尺服务未启动（{base_url}），且 --url 未带端口、无法自动启动：\n"
+                f"    墨尺默认地址 http://127.0.0.1:8765——请用带端口的 --url 重试，"
+                f"或手动启动：cd <墨尺目录> && python server.py")
     ruler_dir = os.environ.get(KEY_ENV_DIR, "")
     server_py = os.path.join(ruler_dir, "server.py") if ruler_dir else ""
     if not server_py or not os.path.isfile(server_py):
         return (f"墨尺服务未启动（{base_url}）。二选一：\n"
                 f"    a) 手动启动：cd <墨尺目录> && python server.py\n"
                 f"    b) 设环境变量 {KEY_ENV_DIR}=<墨尺仓库路径>，本脚本自动启动")
-    subprocess.Popen([sys.executable, "server.py", port], cwd=ruler_dir,
+    subprocess.Popen([sys.executable, "server.py", str(port)], cwd=ruler_dir,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -239,7 +248,9 @@ def write_report(path, rnd, rows, floor, min_):
         lines.append("## 检测失败（未测出≠不达标，排查后 --only 重测）")
         lines.append("")
         for r in err_list:
-            lines.append(f"- 第{r['num']}章 {r['title']}")
+            # 失败原因一并落报告（v7.30：此前只打控制台，事后排查丢信息）
+            reason = f"（原因：{r['err']}）" if r.get("err") else ""
+            lines.append(f"- 第{r['num']}章 {r['title']}{reason}")
     if not fix_list and not err_list:
         lines.append("## 待修复清单")
         lines.append("")
@@ -271,8 +282,14 @@ def analyze_one(base_url, path, top, timeout):
         if not isinstance(sc, dict) or not sc:
             return None, "响应缺少 score 评分数据（按检测失败处理，不判不达标）"
         try:
-            total = float(sc.get("total", 0))
-            dims = [float(sc.get(k, 0)) for k, _ in DIMS]
+            raw_total = sc.get("total")
+            if raw_total is None:
+                return None, "响应 score 缺少 total 总分（按检测失败处理，不判不达标）"
+            total = float(raw_total)
+            raw_dims = [sc.get(k) for k, _ in DIMS]
+            if any(x is None for x in raw_dims):
+                return None, "响应 score 缺少五维键（按检测失败处理，不判不达标）"
+            dims = [float(x) for x in raw_dims]
         except (TypeError, ValueError):
             return None, "响应评分不是数字（total/五维）"
         if not math.isfinite(total) or not 0 <= total <= 10:
@@ -358,7 +375,13 @@ def run_book(args):
     prev_rnd, prev_map, prev_rows = load_prev_report(report_path)
     rnd = prev_rnd + 1
     tested = {c[0] for c in chapters}
-    rows = [prev_rows[num] for num in sorted(prev_rows) if num not in tested]
+    # 已删/改号章的旧行剔除（v7.30 幽灵章：旧行被永久复用会让退出码卡住且 --only 清不掉）
+    all_nums = {c[0] for c in collect_chapters(book_dir)}
+    ghosts = [num for num in sorted(prev_rows) if num not in tested and num not in all_nums]
+    rows = [prev_rows[num] for num in sorted(prev_rows)
+            if num not in tested and num in all_nums]
+    if ghosts:
+        print(f"[i] 上轮报告中第 {'、'.join(str(n) for n in ghosts)} 章已不在书稿里，旧结论剔除")
     print(f"[i] 墨尺全书检测 第{rnd}轮：本轮检测 {len(chapters)} 章"
           f"（通过线{args.min:g}/硬下限{args.floor:g}，总分越高越好"
           f"{'，其余 ' + str(len(rows)) + ' 章沿用上轮' if rows else ''}）")
@@ -368,7 +391,7 @@ def run_book(args):
         row, error = analyze_one(args.url, os.path.join(book_dir, fname), args.top, args.timeout)
         if error:
             rows.append({"num": num, "title": title or fname, "level": "error",
-                         "prev": None, "weak": [], "reused": False})
+                         "prev": None, "weak": [], "reused": False, "err": str(error)[:80]})
             print(f"[!] {label}：检测失败——{error}")
         else:
             lvl = evaluate(row["total"], args.floor, args.min)
@@ -406,15 +429,15 @@ def run_book(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="墨尺本地AI味检测 v7.24（0-10分越高越像真人；朱雀额度用尽的本地兜底）",
+        description=f"墨尺本地AI味检测 v{SKILL_VERSION}（0-10分越高越像真人；朱雀额度用尽的本地兜底）",
         epilog="服务：默认 127.0.0.1:8765，设 MOCHI_RULER_DIR=<墨尺仓库路径> 可自动启动。"
                "退出码 0=通过 / 1=不达标禁止交付 / 2=输入或配置错误 / 3=分析失败。")
     ap.add_argument("file", nargs="?", help="章节文件（.md/.txt）；与 --book 二选一")
     ap.add_argument("--book", default="", metavar="项目根",
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/墨尺检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12）")
-    ap.add_argument("--min", type=_score_arg, default=9, help="总分通过线0-10（默认9=人类分90，真源=常量表·六）")
-    ap.add_argument("--floor", type=_score_arg, default=8, help="总分硬下限0-10（默认8=人类分80，低于禁止交付）")
+    ap.add_argument("--min", type=_score_arg, default=DEFAULT_MOCHI_MIN, help=f"总分通过线0-10（默认{DEFAULT_MOCHI_MIN}=人类分90，真源=常量表·六）")
+    ap.add_argument("--floor", type=_score_arg, default=DEFAULT_MOCHI_FLOOR, help=f"总分硬下限0-10（默认{DEFAULT_MOCHI_FLOOR}=人类分80，低于禁止交付）")
     ap.add_argument("--top", type=int, default=5, help="展示最差指标项个数（默认5）")
     ap.add_argument("--url", default=DEFAULT_URL, help="墨尺服务地址（默认 127.0.0.1:8765）")
     ap.add_argument("--delay", type=float, default=0, help="全书模式章节间隔秒数（本地默认0）")

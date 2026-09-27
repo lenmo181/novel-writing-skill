@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-mochi_check.py — 网络小说创作技能 v7.7 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
+mochi_check.py — 网络小说创作技能 v7.24 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
 工具: 墨尺 mochi-ruler（github.com/yycqyjq/mochi-ruler，MIT，纯标准库本地服务）
      评分 0-10、**越高越像真人**（注意：与朱雀 ai_pct / AI味指数方向相反）
-用法: python mochi_check.py <章节文件.md|txt> [--min 6] [--floor 5] [--top 5]
+用法: python mochi_check.py <章节文件.md|txt> [--min 9] [--floor 8] [--top 5]
                                      [--url http://127.0.0.1:8765] [--timeout 60]
      python mochi_check.py --book <项目根> [--only 3,7-12] [--delay 0] [其余同上]
 服务: 默认连 http://127.0.0.1:8765。服务没起时：
@@ -19,6 +19,7 @@ mochi_check.py — 网络小说创作技能 v7.7 墨尺本地AI味检测（朱�
 """
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -34,7 +35,7 @@ except Exception:
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from check_chapter import count_chars, load_text  # noqa: E402
+from check_chapter import body_lines, count_chars, load_text  # noqa: E402
 from gen_index import collect_chapters  # noqa: E402
 
 DEFAULT_URL = "http://127.0.0.1:8765"
@@ -123,7 +124,10 @@ def call_analyze(base_url, text, name, timeout):
 
 def worst_items(items, top):
     """40 项逐项分里取最低的前 top 项（<7 才算值得看的短板）。"""
-    rows = sorted(((k, v) for k, v in items.items() if v < 7), key=lambda x: x[1])
+    if not isinstance(items, dict):
+        return []
+    rows = sorted(((k, v) for k, v in items.items() if isinstance(v, (int, float)) and v < 7),
+                  key=lambda x: x[1])
     return [f"{k}={v:.1f}" for k, v in rows[:top]]
 
 
@@ -135,15 +139,34 @@ def evaluate(total, floor, min_):
     return "pass"
 
 
+def _score_arg(text):
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"不是数字：{text}")
+    if not math.isfinite(v) or not 0 <= v <= 10:
+        raise argparse.ArgumentTypeError(f"须为 0-10 的有限数：{text}")
+    return v
+
+
+def _relevel_reused(rows, floor, min_):
+    """旧数据按本轮阈值重判（v7.25，与朱雀通路同规则）：数值沿用上轮省时间，
+    结论必须反映当前交付线——此前提高阈值后 --only 局部重测，未重测章仍沿用旧「通过」。"""
+    for r in rows:
+        if r.get("reused") and r.get("level") != "error":
+            r["level"] = evaluate(r["total"], floor, min_)
+
+
 # ─────────────── 报告（与朱雀报告同构：轮次/合并/较上轮）───────────────
 
 def load_prev_report(path):
-    """读上一轮墨尺报告 -> (轮次, {章号: total}, {章号: 行dict})。"""
+    """读上一轮墨尺报告 -> (轮次, {章号: total}, {章号: 行dict})。
+    数字列损坏的行跳过（「失败」结论行除外），不再整表崩溃（v7.25）。"""
     if not os.path.isfile(path):
         return 0, {}, {}
     rnd, prev, rows = 0, {}, {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 m = re.search(r"轮次[:：]\s*(\d+)", line)
                 if m:
@@ -152,19 +175,24 @@ def load_prev_report(path):
                 if len(cells) < 10 or not cells[0].isdigit():
                     continue
                 num = int(cells[0])
-                if re.fullmatch(r"[\d.]+", cells[2]):
-                    prev[num] = float(cells[2])
-                    verdict = cells[9]
-                    level = ("fail" if "不达标" in verdict else
-                             "warn" if "警告" in verdict else
-                             "error" if "失败" in verdict else "pass")
-                    rows[num] = {"num": num, "title": cells[1], "level": level,
-                                 "total": float(cells[2]),
-                                 "dims": [float(cells[i]) for i in range(3, 8)],
-                                 "prev": None, "weak": [], "reused": True}
-                elif "失败" in cells[9]:
-                    rows[num] = {"num": num, "title": cells[1], "level": "error",
-                                 "prev": None, "weak": [], "reused": True}
+                if not re.fullmatch(r"[\d.]+", cells[2]):
+                    if "失败" in cells[9]:
+                        rows[num] = {"num": num, "title": cells[1], "level": "error",
+                                     "prev": None, "weak": [], "reused": True}
+                    continue
+                try:
+                    total = float(cells[2])
+                    dims = [float(cells[i]) for i in range(3, 8)]
+                except ValueError:
+                    continue
+                verdict = cells[9]
+                level = ("fail" if "不达标" in verdict else
+                         "warn" if "警告" in verdict else
+                         "error" if "失败" in verdict else "pass")
+                rows[num] = {"num": num, "title": cells[1], "level": level,
+                             "total": total, "dims": dims,
+                             "prev": None, "weak": [], "reused": True}
+                prev[num] = total
     except OSError:
         return 0, {}, {}
     return rnd, prev, rows
@@ -227,18 +255,32 @@ def analyze_one(base_url, path, top, timeout):
     title = os.path.basename(path)
     try:
         text = load_text(path)
-        n = count_chars(text)
+    except OSError as e:
+        return None, f"无法读取文件：{e}"
+    try:
+        lines, _ = body_lines(text)
+        body = "\n".join(lines)
+        n = count_chars(body)
         if n < MIN_CHARS:
             return None, f"纯正文仅 {n} 字（<{MIN_CHARS}），不足送检"
-        data = call_analyze(base_url, text, title, timeout)
+        data = call_analyze(base_url, body, title, timeout)
         chs = data.get("chapters") or []
         if not chs:
             return None, "响应无章节数据"
-        sc = chs[0].get("score") or {}
-        total = float(sc.get("total", 0))
+        sc = chs[0].get("score") if isinstance(chs[0], dict) else None
+        if not isinstance(sc, dict) or not sc:
+            return None, "响应缺少 score 评分数据（按检测失败处理，不判不达标）"
+        try:
+            total = float(sc.get("total", 0))
+            dims = [float(sc.get(k, 0)) for k, _ in DIMS]
+        except (TypeError, ValueError):
+            return None, "响应评分不是数字（total/五维）"
+        if not math.isfinite(total) or not 0 <= total <= 10:
+            return None, f"响应总分超出 0-10：{total}"
+        dims = [d if math.isfinite(d) and 0 <= d <= 10 else 0.0 for d in dims]
         return {
             "total": total,
-            "dims": [float(sc.get(k, 0)) for k, _ in DIMS],
+            "dims": dims,
             "weak": worst_items(chs[0].get("items") or {}, top),
             "violations": len(chs[0].get("violations") or []),
         }, None
@@ -342,6 +384,7 @@ def run_book(args):
     mind_dir = os.path.dirname(report_path)
     if mind_dir and not os.path.isdir(mind_dir):
         os.makedirs(mind_dir, exist_ok=True)
+    _relevel_reused(rows, args.floor, args.min)
     rows.sort(key=lambda r: r["num"])
     write_report(report_path, rnd, rows, args.floor, args.min)
 
@@ -363,15 +406,15 @@ def run_book(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="墨尺本地AI味检测 v7.7（0-10分越高越像真人；朱雀额度用尽的本地兜底）",
+        description="墨尺本地AI味检测 v7.24（0-10分越高越像真人；朱雀额度用尽的本地兜底）",
         epilog="服务：默认 127.0.0.1:8765，设 MOCHI_RULER_DIR=<墨尺仓库路径> 可自动启动。"
                "退出码 0=通过 / 1=不达标禁止交付 / 2=输入或配置错误 / 3=分析失败。")
     ap.add_argument("file", nargs="?", help="章节文件（.md/.txt）；与 --book 二选一")
     ap.add_argument("--book", default="", metavar="项目根",
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/墨尺检测报告.md")
     ap.add_argument("--only", default="", help="全书模式重测指定章（示例：3,7-12）")
-    ap.add_argument("--min", type=float, default=9, help="总分通过线0-10（默认9=人类分90，真源=常量表·六）")
-    ap.add_argument("--floor", type=float, default=8, help="总分硬下限0-10（默认8=人类分80，低于禁止交付）")
+    ap.add_argument("--min", type=_score_arg, default=9, help="总分通过线0-10（默认9=人类分90，真源=常量表·六）")
+    ap.add_argument("--floor", type=_score_arg, default=8, help="总分硬下限0-10（默认8=人类分80，低于禁止交付）")
     ap.add_argument("--top", type=int, default=5, help="展示最差指标项个数（默认5）")
     ap.add_argument("--url", default=DEFAULT_URL, help="墨尺服务地址（默认 127.0.0.1:8765）")
     ap.add_argument("--delay", type=float, default=0, help="全书模式章节间隔秒数（本地默认0）")

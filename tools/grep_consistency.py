@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-grep_consistency.py — mind/ 档案与正文的四类硬矛盾告警（v7.9，轻量·仅告警）
+grep_consistency.py — mind/ 档案与正文的四类硬矛盾告警（v7.27，轻量·仅告警）
 用法: python grep_consistency.py [项目根目录] [--limit 200]
 
 查四类机器可判定的硬矛盾（不做语义推断，只做字面命中）:
@@ -45,8 +45,13 @@ ITEM_STOP = {"无", "空", "暂无", "没有", "—", "-", "", "（无）", "(�
 
 
 def load(path):
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
-        return f.read()
+    """读章节/档案文件；被占用或权限拒绝时返回空串并告警，不让单文件锁死整个体检（v7.30）。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError as e:
+        print(f"[!] 无法读取 {path}（{e}），该文件跳过")
+        return ""
 
 
 def parse_snapshot(path):
@@ -183,9 +188,11 @@ def scan(project, limit=200):
     chapters = iter_chapters(book_dir)
     scanned = []
     if chapters:
+        # B 类（伤势冲突）按「最近 N 章」回溯，取全书尾部窗口
+        limit = max(limit, 0)  # --limit 0/负数归零（此前 [-0:] 会切片成全书，语义反转）
         truncated = len(chapters) > limit
         scanned = chapters[-limit:] if truncated else chapters
-        print(f"[i] 扫描范围：第{scanned[0][0]}-{scanned[-1][0]}章（共 {len(scanned)} 章）"
+        print(f"[i] B 类扫描范围：第{scanned[0][0]}-{scanned[-1][0]}章（共 {len(scanned)} 章）"
               + (f"；更早章节超出上限 {limit} 章未扫描" if truncated else ""))
 
     all_names = set(chars.keys())
@@ -194,15 +201,24 @@ def scan(project, limit=200):
             all_names.add(alias)
 
     # ── A 已亡/退场实体再度出场 ──
+    # 窗口口径（v7.30 修正）：每个实体从「最后出场 + 1」章起扫，上限 --limit 章——
+    # 此前取全书尾部 limit 章，长书（600 章默认 200）里第 50 章死亡第 55 章复活这类
+    # 最典型吃书场景整体落在窗口外，静默漏检。
     for name, fields in sorted(chars.items()):
         status = fields.get("状态", "") + fields.get("伤势", "")
         if not any(mark in status for mark in DEATH_MARKS):
             continue
         last = parse_last_chapter(fields.get("最后出场", ""))
         names = [name] + parse_aliases(fields.get("别名", ""))
-        for num, path in scanned:
-            if last is not None and num <= last:
-                continue
+        if last is None:
+            # 档案不全：不逐章告警（会把退场前的正常出场全部误报成 A 类），降级为一条档案提示
+            issues.append((
+                "A", "低", f"{os.path.relpath(snap_path, project)}:{fields.get('_line', '?')}",
+                f"实体「{name}」标记「{status}」但未填可解析的「最后出场」章号，A 类比对跳过",
+                "补「最后出场：第N章」（N 为阿拉伯数字）后重跑，可精确扫描其后各章"))
+            continue
+        scanned_a = [(num, path) for num, path in chapters if num > last][:limit]
+        for num, path in scanned_a:
             for lineno, line in enumerate(load(path).splitlines(), 1):
                 if any(n and n in line for n in names):
                     issues.append((

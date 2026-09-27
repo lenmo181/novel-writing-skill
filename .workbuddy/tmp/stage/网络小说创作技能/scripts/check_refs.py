@@ -14,7 +14,7 @@ check_refs.py — 技能包内相对引用完整性检查（v7.4）
   · 外部能力（$story-cover、$imagegen、ImageMagick 等）非本地路径 → 跳过
   · versions/ 是冻结存档，**不参与扫描**（但别处对 versions/ 的引用会被校验）
 
-退出码: 0=无悬空引用, 1=存在悬空引用
+退出码: 0=无悬空引用, 1=存在悬空引用, 2=根目录不存在或不是目录
 """
 import argparse
 import os
@@ -40,7 +40,7 @@ REF_RE = re.compile(
     r")")
 
 # 扫描时排除的目录（历史存档 / 缓存）
-SKIP_DIRS = {"versions", ".git", "__pycache__", ".v2c", ".video_agent"}
+SKIP_DIRS = {"versions", ".git", "__pycache__", ".v2c", ".video_agent", ".workbuddy", "dist", "out"}
 
 
 def iter_md_files(root):
@@ -61,6 +61,10 @@ def is_skipped(rel):
 
 def check(root):
     root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        # v7.25 修复：此前不存在的根目录会因空遍历而误报「无悬空引用、通过」
+        print(f"[✗] 输入错误：根目录不存在或不是目录：{root}")
+        return 2
     dangling, checked = [], 0
     seen = set()
 

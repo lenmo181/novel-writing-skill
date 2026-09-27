@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-conflict_score.py — 章节冲突值计算器（v7.4）
+conflict_score.py — 章节冲突值计算器（v7.27）
 公式: 冲突值 = 基础分(默认1) + Σ(因子权重 × 触发次数)
 
 因子权重（与 references/节奏与结构.md、references/常量表.md 1:1）:
@@ -114,8 +114,9 @@ def render(chapter_no, title, factors, base=BASE_DEFAULT):
 
 
 def check_peak_spacing(results, gap=4):
-    """峰值间距：两个峰值章相隔 < gap 章 → 提醒"""
-    peaks = [no for no, score in results if is_peak(score)]
+    """峰值间距：两个峰值章相隔 < gap 章 → 提醒（按章号排序后比对，v7.30：
+    此前假定输入升序，乱序 JSON 会产生 b-a 为负的伪告警或漏报）"""
+    peaks = sorted(no for no, score in results if is_peak(score))
     warn = []
     for a, b in zip(peaks, peaks[1:]):
         if b - a < gap:

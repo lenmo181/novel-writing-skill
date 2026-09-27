@@ -34,18 +34,48 @@ MIN_SIDE = 600        # 最小边长
 MIN_BYTES = 30 * 1024 # 最小文件体积
 
 
+def _png_sanity(data):
+    """轻量 PNG 结构校验：块遍历 + CRC32 + 必须含 IDAT 与 IEND（纯标准库）。
+    v7.25 新增——此前只读 IHDR 尺寸，签名+尺寸头+零填充的假图能「机械质检通过」。"""
+    import zlib
+    pos, has_idat, first = 8, False, True
+    while pos + 8 <= len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        ctype = data[pos + 4:pos + 8]
+        end = pos + 8 + length
+        if end + 4 > len(data):
+            raise ValueError("PNG 块不完整（文件截断？）")
+        crc = struct.unpack(">I", data[end:end + 4])[0]
+        if zlib.crc32(data[pos + 4:end]) & 0xFFFFFFFF != crc:
+            raise ValueError(f"PNG 块 {ctype!r} CRC 校验失败（文件损坏）")
+        if first and ctype != b"IHDR":
+            raise ValueError("PNG 首块不是 IHDR")
+        first = False
+        if ctype == b"IDAT":
+            has_idat = True
+        if ctype == b"IEND":
+            if not has_idat:
+                raise ValueError("PNG 缺少图像数据（IDAT）")
+            return
+        pos = end + 4
+    raise ValueError("PNG 未找到 IEND 结束块（文件截断？）")
+
+
 def read_size(path):
-    """纯标准库读 PNG/JPEG 像素尺寸。返回 (w, h) 或抛 ValueError。"""
+    """纯标准库读 PNG/JPEG 像素尺寸并做轻量结构校验。返回 (w, h) 或抛 ValueError。"""
     with open(path, "rb") as f:
-        head = f.read(32)
-    if head[:8] == b"\x89PNG\r\n\x1a\n":
-        if head[12:16] != b"IHDR":
+        data = f.read()
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        if len(data) < 24:
+            raise ValueError("PNG 头不完整（文件截断？）")
+        if data[12:16] != b"IHDR":
             raise ValueError("PNG 缺少 IHDR")
-        w, h = struct.unpack(">II", head[16:24])
+        w, h = struct.unpack(">II", data[16:24])
+        if w <= 0 or h <= 0:
+            raise ValueError(f"PNG 尺寸非法 {w}x{h}")
+        _png_sanity(data)
         return w, h
-    if head[:2] == b"\xff\xd8":
-        with open(path, "rb") as f:
-            data = f.read()
+    if data[:2] == b"\xff\xd8":
         i = 2
         while i + 9 < len(data):
             if data[i] != 0xFF:
@@ -59,7 +89,11 @@ def read_size(path):
                 break
             seg_len = struct.unpack(">H", data[i + 2:i + 4])[0]
             if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                if i + 9 > len(data):
+                    break
                 h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                if w <= 0 or h <= 0:
+                    raise ValueError(f"JPEG 尺寸非法 {w}x{h}")
                 return w, h
             i += 2 + seg_len
         raise ValueError("JPEG 未找到 SOF 段（文件损坏？）")
@@ -76,9 +110,12 @@ def check(path, target_ratio, ratio_name, prompt_strict):
         failures.append(f"文件仅 {size/1024:.0f}KB（<{MIN_BYTES//1024}KB）——疑似占位图或损坏")
     try:
         w, h = read_size(path)
-    except ValueError as e:
+    except (ValueError, struct.error) as e:
         print(f"[✗] 无法解析图片：{e}")
         return 1 if size >= MIN_BYTES else 2
+    except OSError as e:
+        print(f"[✗] 输入错误：无法读取 {path}（{e}）")
+        return 2
 
     print(f"[i] {os.path.basename(path)}：{w}x{h}（{size/1024:.0f}KB）")
     if w < MIN_SIDE or h < MIN_SIDE:
@@ -120,6 +157,8 @@ def parse_expect(spec):
     if not re.fullmatch(r"\d+x\d+", (spec or "").lower()):
         return None
     w, h = (int(x) for x in spec.lower().split("x"))
+    if w <= 0 or h <= 0:
+        return None
     return w, h
 
 
@@ -151,4 +190,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
