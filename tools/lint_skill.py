@@ -94,7 +94,8 @@ def main() -> int:
                  "tools/cover_check.py", "tools/visualize.py", "tools/gen_index.py",
                  "tools/project_audit.py", "tools/continuity_check.py", "tools/context_pack.py",
                  "tools/chapter_diff.py", "tools/snapshot_project.py", "tools/update_skill.py",
-                 "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py"]:
+                 "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py",
+                 "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py"]:
         text = read(path)
         if f"v{SKILL_VERSION}" not in text[:1200]:
             fail(errors, f"{path} 头部未标注技能版本 v{SKILL_VERSION}")

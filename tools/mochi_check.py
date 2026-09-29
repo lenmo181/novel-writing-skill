@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mochi_check.py — 网络小说创作技能 v7.30 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
+mochi_check.py — 网络小说创作技能 v7.32 墨尺本地AI味检测（朱雀额度用尽的本地兜底）
 工具: 墨尺 mochi-ruler（github.com/yycqyjq/mochi-ruler，MIT，纯标准库本地服务）
      评分 0-10、**越高越像真人**（注意：与朱雀 ai_pct / AI味指数方向相反）
 用法: python mochi_check.py <章节文件.md|txt> [--min 9] [--floor 8] [--top 5]

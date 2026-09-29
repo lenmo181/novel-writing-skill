@@ -1,8 +1,12 @@
 # 网络小说创作技能
 
-> 当前版本：**v7.30**（2026-09-27） · 历史版本见 [`versions/`](versions/)（版本号和发布日以 `tools/config.py` 为程序真源）
+> 当前版本：**v7.32**（2026-09-29） · 历史版本见 [`versions/`](versions/)（版本号和发布日以 `tools/config.py` 为程序真源）
 
 面向 ZCode / AI 编码助手的网文创作主力技能：把"会写小说"变成**可验证的工程流程**——机械校验脚本硬卡，不过不许交付。
+
+## 从这里开始
+
+新手只看两页：先读 [`references/快速开始.md`](references/快速开始.md)，再按问题查 [`references/工具选择.md`](references/工具选择.md)。平时写作只需“初始化项目 → 写第1章 → 续写”；不要一开始把全部手册和脚本都打开。
 
 ## 交流群
 
@@ -20,7 +24,7 @@
 - **工程化**：项目模板落地、mind/ 七档案 + 回顾/ 自动更新、章节目录脚本化生成（读旧表合并不覆盖既有值）、一键生成断点恢复、标准审稿卡（五维25分制）
 - **反AI防线**：禁言词库（A/B级）、AI套话库34词+AI式意象黑名单、反AI啰嗦10条、活人感规则、比喻限额（800字≤1处）、自然度合同（Gate H）、**文风样本软门禁**（有样本按样本、无样本不阻塞）、**朱雀AI文本线上检测（v7.5，可选，v7.8 起百分制）**——腾讯 AIGC 检测模型定量复核（人类分 ≥90 达标、80-89 警告、<80 禁止交付）+ AI 味最重分段定位，交 8 Gate 定向改写；**全书批量检测+修复循环**（`--book` 报告落盘、`--only` 只重测未达标章）；未配 Key 不阻塞
 - **连载记忆（v7.3）**：三层回顾归档（单章微型→阶段合并）+信息差矩阵+伏笔生命周期+连续性审计15项；润色扩写配方库（控幅扩写/对症润色/两段衔接/降重/回填大纲）；设定优先级链+扩写权限白名单
-- **开源能力融合（v7.27）**：吸收公开项目的持久状态、阶段化流水线、事件账本、上下文构建、快照/差异审阅和本地优先原则；新增项目体检、连续性检查、上下文包、章节差异和安全快照五个纯标准库工具，全部只读或可回滚，不直接复制第三方代码。
+- **开源能力融合（v7.32）**：在已有上下文、连续性、快照和差异闭环上，补齐一键项目初始化、统一项目健康报告、角色别名/关系/出场台账；功能只读或可回滚，不直接复制第三方代码。
 - **安全更新（v7.28）**：新增 SkillHub 版本检测与安全更新器；支持确认更新/自动更新、ZIP 安全校验、更新前备份、失败回滚和 JSON 输出，不触碰小说项目目录。
 - **评测增强（v7.28，本地未发布）**：新增 `tools/doctor.py` 统一只读自检与《操作范例》产出契约，覆盖安装完整性、版本/语法/引用检查，以及新书、旧稿、审校、技能更新四条端到端范例。
 - **路由增强（v7.28，本地未发布）**：新增《模式操作卡》，把触发词、最小输入、执行级别、可写范围、停靠条件和完成标准统一成 9 类流程卡；`doctor.py` 增加运行级与打包安装冒烟测试。
@@ -41,6 +45,9 @@
 │   ├── context_pack.py              # 生成带来源 SHA-256 的续写上下文包
 │   ├── chapter_diff.py              # 章节版本差异与大删风险报告
 │   ├── snapshot_project.py          # 大修前项目快照与 manifest
+│   ├── init_project.py              # 一键创建标准项目骨架（默认不覆盖）
+│   ├── entity_index.py              # 角色别名/关系/出场台账
+│   ├── project_health.py            # 汇总结构、连续性和档案健康报告
 │   ├── update_skill.py              # SkillHub 版本检测与安全更新
 │   ├── doctor.py                    # 安装后统一自检（结构/版本/语法/引用）
 │   ├── release_check.py             # 发布前只读预检（本地验证，不上传）
@@ -60,6 +67,8 @@
 │   ├── 开源融合.md                 # 开源项目能力矩阵、许可证防线与融合工作流
 │   ├── 技能更新.md                 # SkillHub 更新检测、备份、回滚与授权边界
 │   ├── 快速开始.md                 # 首次使用、最小输入与端到端示例
+│   ├── 工具选择.md                 # 工具边界、重叠项拆分与最短命令路径
+│   ├── 研究来源.md                 # 研究来源台账字段与项目内落盘规则
 │   ├── 操作范例.md                 # 高频请求的输入、动作链、回执与停靠点
 │   ├── 模式操作卡.md               # 9 类主流程的触发、输入、权限、停靠与交付标准
 │   ├── 评测场景.md                 # 16 个自然语言回归场景与越权边界
@@ -73,7 +82,7 @@
 
 Codex 用户：将技能目录同步到 `~/.codex/skills/网络小说创作技能/`；推荐运行 `powershell -ExecutionPolicy Bypass -File tools/sync_skill.ps1`。其他宿主请用 `-Destination` 指定技能目录。安装后对 AI 说“初始化项目”即可。
 
-首次使用先看 [`references/快速开始.md`](references/快速开始.md)。如果出现闪退、报错、找不到项目、断点恢复或更新失败，按 [`references/常见问题.md`](references/常见问题.md) 的现象表处理；安装后先运行 `python tools/doctor.py`，再运行 `python tools/lint_skill.py` 和 `python tools/check_refs.py`。
+首次使用先看 [`references/快速开始.md`](references/快速开始.md)，工具职责看 [`references/工具选择.md`](references/工具选择.md)。如果出现闪退、报错、找不到项目、断点恢复或更新失败，再按 [`references/常见问题.md`](references/常见问题.md) 的现象表处理；安装后先运行 `python tools/doctor.py`，不必一开始把所有检查命令全部跑一遍。
 
 运行时路径优先级：用户显式指定项目根目录 > 环境变量 `NOVEL_PROJECT_ROOT` > `~/.codex/workspace/novels/`。技能包不再依赖具体用户名或旧宿主目录。
 
@@ -84,6 +93,7 @@ python tools/check_chapter.py "书稿/第001章_章节名.md"
 # 退出码 0=通过 / 1=有硬伤禁止交付 / 2=输入错误
 # --min/--max 调字数区间；--quote chal|straight|any 切换引号口径（短篇用 straight）
 # --dialog-min 调对话占比下限（默认15，短剧可传60）
+python tools/check_chapter.py "书稿/第001章_章节名.md" --ai-lite  # 零依赖 AI 味初筛，不跑完整硬卡
 ```
 
 配套脚本：
@@ -109,6 +119,9 @@ python tools/continuity_check.py "<项目根>"   # 连续性检查：角色、�
 python tools/context_pack.py "<项目根>" --chapter 12 --out "<项目根>/mind/上下文包_第12章.md"
 python tools/chapter_diff.py "旧章.md" "新章.md" --out "<项目根>/mind/第12章差异.md"
 python tools/snapshot_project.py "<项目根>" --label before-rewrite
+python tools/init_project.py "<项目根>" --title "雾城拾荒者" --genre "都市悬疑" --platform "番茄" --target-words "80万字"
+python tools/entity_index.py "<项目根>" --out "<项目根>/mind/实体索引.md"
+python tools/project_health.py "<项目根>" --out "<项目根>/mind/项目健康报告.md"
 ```
 
 技能更新：
@@ -141,6 +154,10 @@ python tools/mochi_check.py --book "<项目根>" --only 3,7-12   # 全书/重测
 ```
 
 ## 版本历史（摘要）
+
+- **v7.32（2026-09-29）**：吸收 Bookwright 的 canonical/来源追踪、Long Novel Agent Kit 的持久状态与交接、Manuskript 的场景组织启发；新增 `init_project.py`、`entity_index.py`、`project_health.py`，补齐一键建项目、实体台账和统一健康入口，并将三者纳入 doctor、lint、release 和运行级冒烟。
+
+- **v7.31（2026-09-28）：新手入口与工具边界优化版**——新增《工具选择》单页矩阵，明确重叠检查器的职责边界；`check_chapter.py` 新增 `--ai-lite` 免依赖 AI 味初筛；首次使用改为“快速开始 → 工具选择 → 按需手册”。
 
 - **v7.30（2026-09-27）：第三轮全面审计发布版**——逐行复核全部 24 个工具脚本，实测修复 17 项缺陷：修稿工具不再把「他对她说」删成残句（GBK 章跳过+原子写回防丢稿）；吃书检测 A 类窗口改为「最后出场之后」（长书死亡复活不再漏检）；朱雀/墨尺缺键不再误判 0 分、删章后旧报告行自动剔除；`#` 标题/BOM/中文数字章号/半角冒号台词等口径修复；看板遇编码坏文件不再崩、同名项目阅读记忆隔离；新增 25 项回归测试（全套 89 项全绿）。
 

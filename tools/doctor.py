@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.30）。
+"""技能包统一自检（v7.32）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -30,6 +30,8 @@ REQUIRED_FILES = (
     "README.md",
     "templates/项目模板.md",
     "references/快速开始.md",
+    "references/工具选择.md",
+    "references/研究来源.md",
     "references/常见问题.md",
     "references/操作范例.md",
     "references/模式操作卡.md",
@@ -41,6 +43,9 @@ REQUIRED_FILES = (
     "tools/sync_skill.ps1",
     "tools/update_skill.py",
     "tools/release_check.py",
+    "tools/init_project.py",
+    "tools/entity_index.py",
+    "tools/project_health.py",
 )
 
 RUNTIME_TOOLS = (
@@ -66,6 +71,9 @@ RUNTIME_TOOLS = (
     "doctor.py",
     "eval_skill.py",
     "release_check.py",
+    "init_project.py",
+    "entity_index.py",
+    "project_health.py",
 )
 
 
@@ -269,6 +277,8 @@ def main(argv=None) -> int:
             if not item["ok"] and item["fix"]:
                 print(f"    建议：{item['fix']}")
         print("结论：通过" if report["ok"] else "结论：需要修复")
+        if report["ok"]:
+            print("下一步：普通写作直接说“初始化项目”或“写第1章”；需要选工具时查看 references/工具选择.md")
     if report.get("input_error"):
         return 2
     return 0 if report["ok"] else 1

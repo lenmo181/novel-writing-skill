@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.30 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.32 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
                              [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -14,6 +14,7 @@ check_chapter.py — 网络小说创作技能 v7.30 章节机械校验脚本
 --dialog-min/--dialog-max 对话占比区间（百分数），默认 15-50（v7.19：热榜5榜5书16章全章
     span口径实测 10-49%，<15 硬卡、15-25 警告、25-50 健康指导区）；
     短剧剧本口径传 --dialog-min 60（>=55 时自动豁免上限检查）
+--ai-lite 只跑零依赖 AI 味粗测，不执行完整章节硬卡；适合没有墨尺服务时先做初筛。
 """
 import argparse
 import os
@@ -222,6 +223,66 @@ def count_chars(s):
     return len(COUNTABLE.findall(s))
 
 
+def ai_lite_score(body, lines):
+    """返回零依赖启发式 AI 味粗测分数（0-10，越高越需要人工过目）。"""
+    import statistics
+
+    total = count_chars(body)
+    sents = [s for s in re.split("[。！？…]+", body) if count_chars(s) > 0]
+    sent_lens = [count_chars(s) for s in sents]
+    para_lens = [count_chars(ln) for ln in lines]
+    sent_sd = statistics.pstdev(sent_lens) if len(sent_lens) > 3 else 20
+    para_sd = statistics.pstdev(para_lens) if len(para_lens) > 3 else 60
+    simile = sum(body.count(w) for w in SIMILE_WORDS)
+    emo = sum(body.count(w) for w in EMOTION_WORD_LIST)
+    simile_d = simile / total * 1000 if total else 0
+    emo_d = emo / total * 1000 if total else 0
+    avg_sents_per_para = len(sents) / len(lines) if lines else 0
+    score = 0
+    reasons = []
+    if sent_sd < 8:
+        score += 2; reasons.append(f"句长波动低(sd={sent_sd:.0f})")
+    if para_sd < 30:
+        score += 2; reasons.append(f"段长波动低(sd={para_sd:.0f})")
+    if simile_d >= 6:
+        score += 2; reasons.append(f"比喻词密度{simile_d:.1f}/千字")
+    if emo_d >= 6:
+        score += 2; reasons.append(f"情绪词密度{emo_d:.1f}/千字")
+    if avg_sents_per_para > 5:
+        score += 2; reasons.append(f"平均每段{avg_sents_per_para:.1f}句")
+    return score, reasons, {
+        "chars": total,
+        "sent_sd": sent_sd,
+        "para_sd": para_sd,
+        "simile_per_k": simile_d,
+        "emotion_per_k": emo_d,
+        "avg_sentences_per_paragraph": avg_sents_per_para,
+    }
+
+
+def ai_lite_check(path):
+    """免依赖 AI 味初筛：只给启发式指标，不影响章节交付结论。"""
+    if not os.path.isfile(path):
+        print(f"[✗] 输入错误：找不到章节文件 {path}")
+        return 2
+    try:
+        text = load_text(path)
+    except OSError as e:
+        print(f"[✗] 输入错误：无法读取 {path}（{e}）")
+        return 2
+    lines, _ = body_lines(text)
+    score, reasons, metrics = ai_lite_score("\n".join(lines), lines)
+    print(f"[i] AI味粗测 = {score}/10（越高越需要人工过目）")
+    print(f"[i] 字数={metrics['chars']}；句长波动={metrics['sent_sd']:.1f}；段长波动={metrics['para_sd']:.1f}")
+    print(f"[i] 比喻词密度={metrics['simile_per_k']:.1f}/千字；情绪词密度={metrics['emotion_per_k']:.1f}/千字；平均每段={metrics['avg_sentences_per_paragraph']:.1f}句")
+    if reasons:
+        print("[!] 触发指标：" + "；".join(reasons))
+    else:
+        print("[✓] 未触发当前启发式指标")
+    print("[i] 这是本地启发式初筛，不替代墨尺或朱雀的模型结论。")
+    return 0
+
+
 def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT):
     if wmin < 0 or wmax < wmin:
         print(f"[✗] 输入错误：字数区间无效（min={wmin}, max={wmax}）")
@@ -423,28 +484,7 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
         warnings.append("高频词疑似复用: " + "、".join(f"「{w}」×{n}" for w, n in hot) + "——查是否同词近距离重复")
 
     # ── 信息级：AI味指数（粗测，0-10，越高越要人工过目）──
-    import statistics
-    sents = [s for s in re.split("[。！？…]+", body) if count_chars(s) > 0]
-    sent_lens = [count_chars(s) for s in sents]
-    sent_sd = statistics.pstdev(sent_lens) if len(sent_lens) > 3 else 20
-    para_sd = statistics.pstdev(para_lens) if len(para_lens) > 3 else 60
-    simile = sum(body.count(w) for w in SIMILE_WORDS)
-    emo = sum(body.count(w) for w in EMOTION_WORD_LIST)
-    simile_d = simile / total * 1000 if total else 0
-    emo_d = emo / total * 1000 if total else 0
-    avg_sents_per_para = len(sents) / len(lines) if lines else 0
-    score = 0
-    reasons = []
-    if sent_sd < 8:
-        score += 2; reasons.append(f"句长波动低(sd={sent_sd:.0f})")
-    if para_sd < 30:
-        score += 2; reasons.append(f"段长波动低(sd={para_sd:.0f})")
-    if simile_d >= 6:
-        score += 2; reasons.append(f"比喻词密度{simile_d:.1f}/千字")
-    if emo_d >= 6:
-        score += 2; reasons.append(f"情绪词密度{emo_d:.1f}/千字")
-    if avg_sents_per_para > 5:
-        score += 2; reasons.append(f"平均每段{avg_sents_per_para:.1f}句")
+    score, reasons, _ = ai_lite_score(body, lines)
     print(f"[i] AI味指数(粗测) = {score}/10" + ("：" + "；".join(reasons) if reasons else "，机器指标均正常"))
     if score >= AI_SCORE_HARD_MAX:
         failures.append(f"AI味指数 {score}/10 ≥ {AI_SCORE_HARD_MAX}（按《去AI味》8 Gate 定向改写后重测）")
@@ -478,7 +518,11 @@ def main():
                     help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查）")
     ap.add_argument("--dialog-max", type=int, default=DIALOG_MAX_DEFAULT, dest="dialog_max",
                     help="对话占比上限%%（默认50，热榜实证；传0关闭）")
+    ap.add_argument("--ai-lite", action="store_true",
+                    help="只跑零依赖 AI 味粗测，不执行完整章节硬卡")
     args = ap.parse_args()
+    if args.ai_lite:
+        sys.exit(ai_lite_check(args.file))
     sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max))
 
 

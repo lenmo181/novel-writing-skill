@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节版本差异与大删风险检查（v7.30）。"""
+"""章节版本差异与大删风险检查（v7.32）。"""
 import argparse
 import difflib
 import json
