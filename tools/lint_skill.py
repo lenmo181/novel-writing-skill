@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""检查技能包的版本、默认值、路径和关键引用是否一致。"""
+"""检查技能包的版本、默认值、路径、规则治理和关键引用是否一致。"""
 from pathlib import Path
 import re
 import sys
@@ -101,17 +101,24 @@ def main() -> int:
         if value not in constants:
             fail(errors, f"{label}未出现在常量表")
 
-    for path in ["tools/check_chapter.py", "tools/zhuque_check.py", "tools/mochi_check.py",
-                 "tools/cover_check.py", "tools/visualize.py", "tools/gen_index.py",
-                 "tools/project_audit.py", "tools/continuity_check.py", "tools/context_pack.py",
-                 "tools/chapter_diff.py", "tools/snapshot_project.py", "tools/update_skill.py",
-                 "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py",
-                 "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py",
-                 "tools/full_review.py"]:
+    # 工具版本治理：当前运行/治理工具必须标当前版本；稳定工具若有历史版本标记，不因补丁版升级强制重写。
+    pinned_tools = {
+        "tools/full_review.py", "tools/lint_skill.py", "tools/repair_runner.py",
+        "tools/check_chapter.py", "tools/release_check.py", "tools/doctor.py",
+    }
+    tool_paths = [
+        "tools/check_chapter.py", "tools/zhuque_check.py", "tools/mochi_check.py",
+        "tools/cover_check.py", "tools/visualize.py", "tools/gen_index.py",
+        "tools/project_audit.py", "tools/continuity_check.py", "tools/context_pack.py",
+        "tools/chapter_diff.py", "tools/snapshot_project.py", "tools/update_skill.py",
+        "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py",
+        "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py",
+        "tools/full_review.py", "tools/lint_skill.py", "tools/repair_runner.py",
+    ]
+    for path in tool_paths:
         text = read(path)
-        if f"v{SKILL_VERSION}" not in text[:1200]:
+        if path in pinned_tools and f"v{SKILL_VERSION}" not in text[:1200]:
             fail(errors, f"{path} 头部未标注技能版本 v{SKILL_VERSION}")
-
     # 活跃文档不得继续绑定某一用户或旧部署目录；版本历史可保留历史记录。
     active_docs = {
         "SKILL.md": skill.split("## 📚 版本历史", 1)[0],
@@ -143,7 +150,7 @@ def main() -> int:
         fail(errors, "mochi_check.py 仍直接硬编码阈值默认值")
 
 
-    # ── v7.34 规则治理五检 ──
+    # ── v7.35 规则治理六检 ──
     # 1) 规则台账完整性：RB 行数、字段对齐、状态枚举、执行工具/对应测试列必须有内容
     ledger = read("references/规则台账.md")
     rb_rows = [m.group(0) for m in re.finditer(r"^\| RB-\d{3} \|.*$", ledger, re.M)]
@@ -154,14 +161,14 @@ def main() -> int:
         fail(errors, "规则台账 RB 编号重复")
     for r in rb_rows:
         cells = [c.strip() for c in r.split("|")[1:-1]]
-        if len(cells) != 9:
-            fail(errors, f"规则台账行字段数异常（应为9列）：{r[:40]}…")
+        if len(cells) != 11:
+            fail(errors, f"规则台账行字段数异常（应为11列）：{r[:40]}…")
             break
-        if cells[5] not in ("候选", "实验", "稳定", "修正", "废弃"):
-            fail(errors, f"规则台账状态枚举非法：{cells[0]}={cells[5]}")
+        if cells[7] not in ("候选", "实验", "稳定", "修正", "废弃"):
+            fail(errors, f"规则台账状态枚举非法：{cells[0]}={cells[7]}")
             break
-        if not cells[7] or not cells[8]:
-            fail(errors, f"规则台账缺执行工具或对应测试（治理缺环）：{cells[0]}")
+        if not cells[4] or not cells[5] or not cells[6] or not cells[8] or not cells[9] or not cells[10]:
+            fail(errors, f"规则台账缺最近/验证广度/证据等级/落点/执行工具/对应测试：{cells[0]}")
             break
 
     # 2) 常量完整性：config 的墙/审稿常量必须在常量表有同值记载
@@ -185,18 +192,12 @@ def main() -> int:
             fail(errors, f"常量表引用的工具不存在：tools/{m}")
 
     # 4) 测试映射：治理回归测试必须存在
-    for tf in ("test_v733_upgrade.py", "test_v734_governance.py"):
+    for tf in ("test_v733_upgrade.py", "test_v734_governance.py", "test_v735_governance.py"):
         if not (ROOT / "tests" / tf).is_file():
             fail(errors, f"治理测试缺失：tests/{tf}")
 
-    # 5) 活跃手册版本：14 册活跃手册头部必须标当前版本
-    active_manuals = [
-        "references/快速开始.md", "references/工具选择.md", "references/操作范例.md",
-        "references/模式操作卡.md", "references/评测场景.md", "references/评测量表.md",
-        "references/回执协议.md", "references/规则台账.md", "references/体检.md",
-        "references/去AI味.md", "references/常量表.md", "references/开源融合.md",
-        "references/热榜研究.md", "references/热榜知识库.md",
-    ]
+    # 5) 活跃手册版本：references 下运行时手册全部纳入治理；versions/ 不参与。
+    active_manuals = [str(p.relative_to(ROOT)) for p in (ROOT / "references").glob("*.md")]
     for m in active_manuals:
         head = read(m)[:400]
         if f"v{SKILL_VERSION}" not in head:
