@@ -76,6 +76,20 @@ class TestV739Hardening(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(chapter.read_text(encoding="utf-8"), before)
 
+
+    def test_repair_plan_rejects_changed_queue(self):
+        ro = load_mod("repair_orchestrator")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mind").mkdir()
+            (root / "书稿").mkdir()
+            queue = root / "mind" / "全文审稿队列.json"
+            queue.write_text(json.dumps({"round": 1, "issues": []}, ensure_ascii=False), encoding="utf-8")
+            ro.prepare(root)
+            queue.write_text(json.dumps({"round": 2, "issues": []}, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                ro.resolve_targets(root)
+
     def test_semantic_gate_accepts_complete_evidence(self):
         cr = load_mod("chapter_readiness")
         with tempfile.TemporaryDirectory() as td:
