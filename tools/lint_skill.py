@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""检查技能包的版本、默认值、路径、规则治理和关键引用是否一致。"""
+"""技能包版本治理检查器（v7.35）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
