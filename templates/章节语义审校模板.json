@@ -1,0 +1,26 @@
+{
+  "$schema": "../schemas/chapter_semantic_review.schema.json",
+  "version": "7.39",
+  "chapter": 1,
+  "chapter_sha256": "<填入当前章节文件SHA-256>",
+  "generated_at": "YYYY-MM-DDThh:mm:ss+08:00",
+  "checks": {
+    "14": {"status": "pass", "evidence": "具体证据", "location": "第X段", "confidence": 0.9},
+    "15": {"status": "pass", "evidence": "具体证据", "location": "第X段", "confidence": 0.9},
+    "16": {"status": "pass", "evidence": "具体证据", "location": "第X段", "confidence": 0.9},
+    "17": {"status": "pass", "evidence": "具体证据", "location": "伏笔追踪表F-XXX", "confidence": 0.9},
+    "18": {"status": "pass", "evidence": "具体证据", "location": "时间线", "confidence": 0.9},
+    "19": {"status": "pass", "evidence": "章末钩子证据", "location": "章末", "confidence": 0.9},
+    "20": {"status": "pass", "evidence": "对话质量证据", "location": "第X场", "confidence": 0.9},
+    "21": {"status": "warn", "evidence": "自然度信号人工复核说明", "location": "第X段", "confidence": 0.7},
+    "22": {"status": "pass", "evidence": "期待线推进证据", "location": "第X段", "confidence": 0.9},
+    "23": {"status": "pass", "evidence": "视角权限证据", "location": "全文", "confidence": 0.9},
+    "24": {"status": "pass", "evidence": "目标→阻碍→转折证据", "location": "第X场", "confidence": 0.9},
+    "25": {"status": "pass", "evidence": "信息增量证据", "location": "第X段", "confidence": 0.9},
+    "26": {"status": "pass", "evidence": "结构/表达重复核对证据", "location": "第X-Y章", "confidence": 0.9},
+    "27": {"status": "pass", "evidence": "情绪铺垫与兑现证据", "location": "章末", "confidence": 0.9},
+    "28": {"status": "pass", "evidence": "钩子DNA、章名、章纲三对齐证据", "location": "章末/章纲", "confidence": 0.9},
+    "29": {"status": "pass", "evidence": "因果与代价证据", "location": "第X场", "confidence": 0.9},
+    "30": {"status": "pass", "evidence": "状态变化/推进力证据", "location": "章末", "confidence": 0.9}
+  }
+}
