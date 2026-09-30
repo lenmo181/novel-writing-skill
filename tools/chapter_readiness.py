@@ -2,6 +2,7 @@
 """章节交付 Gate（v7.39）：工程 Gate + 可验证语义 Gate。"""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -39,8 +40,19 @@ def semantic_gate(root, chapter):
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": [f"审校记录无法解析：{exc}"]}
+    if data.get("version") != SKILL_VERSION:
+        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 version={data.get('version')} 与当前运行时 v{SKILL_VERSION} 不一致"]}
     if data.get("chapter") != chapter:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 chapter={data.get('chapter')} 与目标第{chapter}章不一致"]}
+    chapter_file = resolve_chapter(root, chapter)
+    if chapter_file is None:
+        return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["当前章节无法读取，不能验证语义证据绑定"]}
+    try:
+        digest = hashlib.sha256(chapter_file.read_bytes()).hexdigest()
+    except OSError as exc:
+        return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": [f"章节哈希计算失败：{exc}"]}
+    if data.get("chapter_sha256") != digest:
+        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": ["语义证据对应的 chapter_sha256 与当前正文不一致；正文已变更，必须重新审校"]}
     checks = data.get("checks")
     if not isinstance(checks, dict):
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["checks 必须是对象，覆盖校验14-30"]}
@@ -85,6 +97,8 @@ def assess(root, chapter, full=False, with_semantic=False):
         gates.append(run_gate("全文审稿", [sys.executable, str(TOOLS / "full_review.py"), str(root), "--strict", "--json"], root))
     return {"version": SKILL_VERSION, "project": str(root), "chapter": chapter,
             "target": str(target.relative_to(root)), "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "semantic_required": with_semantic,
+            "semantic_record": str(semantic_path(root, chapter).relative_to(root)) if with_semantic else None,
             "gates": gates, "ok": all(g["ok"] for g in gates), "input_error": False}
 
 def main(argv=None):
