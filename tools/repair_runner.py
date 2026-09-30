@@ -11,17 +11,28 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config  # noqa: E402
+
 VALID_STATUSES = {"open", "reopened", "fixed", "auto_fixed", "wont_fix"}
 QUEUE_NAME = "mind/全文审稿队列.json"
+REQUIRED_ISSUE_FIELDS = {"issue_id", "level", "cat", "loc", "msg", "evidence", "recommended_action", "repair_scope", "forbidden_action", "status"}
 
 
 def load_queue(root: Path):
     path = root / QUEUE_NAME
     if not path.is_file():
         raise FileNotFoundError(f"队列不存在：{path}")
-    return path, json.loads(path.read_text(encoding="utf-8"))
-
-
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if doc.get("version") not in {None, config.SKILL_VERSION}:
+        raise ValueError(f"队列版本 {doc.get('version')} 与当前技能 {config.SKILL_VERSION} 不一致")
+    for idx, issue in enumerate(doc.get("issues") or [], 1):
+        missing = REQUIRED_ISSUE_FIELDS - set(issue)
+        if missing:
+            raise ValueError(f"队列第{idx}条缺字段：{sorted(missing)}")
+        if issue.get("status") not in VALID_STATUSES:
+            raise ValueError(f"队列第{idx}条状态非法：{issue.get('status')}")
+    return path, doc
 def save_queue(path: Path, doc: dict):
     backup = path.with_suffix(path.suffix + ".bak")
     if path.exists():
