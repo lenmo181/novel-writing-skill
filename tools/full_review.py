@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402  阈值延迟绑定（测试可运行时修改 config 验证传播）
 from canonical_parser import parse_role_snapshot
 
-DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|去世|离世)")
+DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|已亡|去世|离世)")
 CH_NUM_RE = re.compile(r"第(\d{1,5})[章回节]")
 RHYTHM_TYPE_RE = re.compile(r"(主线|峰值|缓冲-对话|缓冲-线索|缓冲-代价|校准)")
 
