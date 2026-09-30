@@ -84,7 +84,7 @@ def audit(root: Path = ROOT) -> dict:
     for row in rows:
         if row["route"] not in skill_text:
             warnings.append(f"{row['id']} 的预期主路由未在 SKILL.md 直接出现：{row['route']}")
-        if not any(token in row["boundary"] for token in ("不得", "不能", "禁止", "停", "授权", "确认")):
+        if not any(token in row["boundary"] for token in ("不得", "不能", "禁止", "停", "授权", "确认", "只读")):
             errors.append(f"{row['id']} 缺少明确停靠/权限约束")
     if "评测场景.md" not in skill_text:
         errors.append("SKILL.md 未接入评测场景矩阵")
