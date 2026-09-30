@@ -161,7 +161,7 @@ def main() -> int:
     readiness = read("tools/chapter_readiness.py")
     if "--with-semantic" not in readiness or "第14-30项" not in readiness:
         fail(errors, "chapter_readiness.py 未提供第14-30项语义证据 Gate")
-    # ── v7.38 规则治理六检 ──
+    # ── v7.39 规则治理六检（承接 v7.38） ──
     # 1) 规则台账完整性：RB 行数、字段对齐、状态枚举、执行工具/对应测试列必须有内容
     ledger = read("references/规则台账.md")
     rb_rows = [m.group(0) for m in re.finditer(r"^\| RB-\d{3} \|.*$", ledger, re.M)]
