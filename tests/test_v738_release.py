@@ -41,7 +41,7 @@ class TestReleaseConfig(unittest.TestCase):
             [sys.executable, str(ROOT / "tools/lint_skill.py")],
             cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8"
         )
-        self.assertIn("核心校验映射", lint.stdout + lint.stderr)
+        self.assertEqual(lint.returncode, 0, lint.stdout[-1500:] + lint.stderr[-1500:])
 
         eval_result = subprocess.run(
             [sys.executable, str(ROOT / "tools/eval_skill.py"), "--json"],
