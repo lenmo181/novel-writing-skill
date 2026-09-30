@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Chapter Semantic Review Record",
   "type": "object",
-  "required": ["version", "chapter", "checks"],
+  "required": ["version", "chapter", "chapter_sha256", "checks"],
   "properties": {
     "version": {"type": "string"},
     "chapter": {"type": "integer", "minimum": 1},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "generated_at": {"type": "string"},
     "checks": {
       "type": "object",
