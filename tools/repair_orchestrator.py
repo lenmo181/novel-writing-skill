@@ -22,7 +22,7 @@ import audit_log
 
 QUEUE = Path("mind") / "全文审稿队列.json"
 PLAN = Path("mind") / "全文修复任务包.json"
-MECHANICAL_HINTS = ("他说：", "她说：", "说道", "文字墙", "元信息残留", "格式残留")
+MECHANICAL_HINTS = ("他说：", "她说：", "光杆说", "说道", "机械问题", "文字墙", "元信息残留", "格式残留")
 
 def queue_sha256(root):
     path = root / QUEUE
