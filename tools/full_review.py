@@ -147,8 +147,8 @@ class Review:
                 if resurf:
                     level = "P0" if (last_ch is None or len(resurf) >= 2) else "P1"
                     self.add(level, "设定", f"{name}（快照标记已故）",
-                             f"已亡角色在第{",".join(map(str, resurf))}章再次出现姓名/别名",
-                             f"快照：状态={fields.get("状态", "")}；最后出场={fields.get("最后出场", "未填写")}；正文命中章节：{resurf}")
+                             f"已亡角色在第{chr(44).join(map(str, resurf))}章再次出现姓名/别名",
+                             "快照：状态=" + fields.get("状态", "") + "；最后出场=" + fields.get("最后出场", "未填写") + "；正文命中章节：" + str(resurf))
         foreshadow = self.root / "mind" / "伏笔追踪表.md"
         if foreshadow.is_file() and cur_max:
             text, _ = read_text(foreshadow)
