@@ -8,8 +8,8 @@ import os, re, shutil, zipfile, subprocess, sys
 
 ROOT = r"C:\Users\lenmo\Desktop\网络小说创作技能"
 SKILL_NAME = "网络小说创作技能"
-VER = "7.33.0"
-STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.33")
+VER = "7.34.0"
+STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.34")
 STAGE = os.path.join(STAGE_ROOT, SKILL_NAME)
 DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))

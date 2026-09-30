@@ -2,8 +2,8 @@
 """上架包自检：脚本可执行性 + ZIP 结构校验"""
 import os, sys, subprocess, zipfile, json
 
-STAGE = r"C:\Users\lenmo\Desktop\网络小说创作技能\.workbuddy\tmp\stage_v7.33\网络小说创作技能"
-ZIP = r"C:\Users\lenmo\Desktop\网络小说创作技能\dist\网络小说创作技能_v7.33.0_skillhub.zip"
+STAGE = r"C:\Users\lenmo\Desktop\网络小说创作技能\.workbuddy\tmp\stage_v7.34\网络小说创作技能"
+ZIP = r"C:\Users\lenmo\Desktop\网络小说创作技能\dist\网络小说创作技能_v7.34.0_skillhub.zip"
 
 print("=== 脚本可执行性（--help） ===")
 sd = os.path.join(STAGE, "scripts")

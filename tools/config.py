@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.33"
+SKILL_VERSION = "7.34"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
 RELEASE_DATE = "2026-09-30"
 
@@ -34,6 +34,22 @@ DEFAULT_DIFF_DELETE_WARN = 0.10
 
 TITLE_MIN = 2
 TITLE_MAX = 12
+
+# 文字墙（v7.34 收敛为唯一真源；题材/书格例外经 check_chapter.py --wall 覆盖）
+WALL_HARD = 140          # > 140 硬卡
+WALL_WARN = 100          # (WALL_WARN, WALL_HARD] 警告
+
+# 全文审稿流水线阈值（v7.34 起唯一真源；常量表·十三与此一致，由 lint/测试守护）
+FULL_REVIEW_NGRAM_OVERLAP_WARN = 40     # 相邻章 3-gram 重复率 %（与留存分析同源）
+FULL_REVIEW_DIALOG_MAX = 55             # 小说体对话占比告警 %
+FULL_REVIEW_LENGTH_HIGH_RATIO = 1.6     # 字数 > 书内中位 ×1.6 → P2
+FULL_REVIEW_LENGTH_TOP_RATIO = 2.0      # 字数 > 书内中位 ×2.0 → P1
+FULL_REVIEW_LENGTH_LOW_RATIO = 0.55     # 字数 < 书内中位 ×0.55 → P2
+FULL_REVIEW_LENGTH_MIN_MEDIAN = 1500    # 书内中位低于此值不启用字数偏离检查
+FULL_REVIEW_FORESHADOW_T2 = 40          # Tier-2 伏笔沉睡阈值（章）
+FULL_REVIEW_FORESHADOW_T3 = 20          # Tier-3 伏笔沉睡阈值（章）
+FULL_REVIEW_RHYTHM_SAME_STREAK = 3      # 同节奏类型连续 ≥3 章告警
+FULL_REVIEW_RHYTHM_BUFFER_STREAK = 4    # 缓冲型合计连续 ≥4 章告警
 
 PROJECT_ROOT_ENV = "NOVEL_PROJECT_ROOT"
 

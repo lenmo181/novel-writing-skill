@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.33 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.34 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
                              [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -22,6 +22,7 @@ import re
 import sys
 from collections import Counter
 
+import config
 from config import (
     DEFAULT_AI_SCORE_HARD_MAX,
     DEFAULT_CHAPTER_MAX,
@@ -31,6 +32,8 @@ from config import (
     SKILL_VERSION,
     TITLE_MAX,
     TITLE_MIN,
+    WALL_HARD,
+    WALL_WARN,
 )
 
 try:
@@ -296,7 +299,11 @@ def ai_lite_check(path):
     return 0
 
 
-def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT):
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT, wall_hard=None, wall_warn=None):
+    if wall_hard is None:
+        wall_hard = config.WALL_HARD  # 延迟绑定：支持运行时覆盖（v7.34 config 传播）
+    if wall_warn is None:
+        wall_warn = config.WALL_WARN
     if wmin < 0 or wmax < wmin:
         print(f"[✗] 输入错误：字数区间无效（min={wmin}, max={wmax}）")
         return 2
@@ -439,13 +446,13 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
     else:
         print(f"[✓] 比喻词 {simile_total} 处（限额 {simile_quota}）")
 
-    # ── 9 排版（v7.16：文字墙 160→140 硬卡 + >100 警告，热榜主流最长段≤90）──
+    # ── 9 排版（文字墙：>wall_hard 硬卡 + (wall_warn, wall_hard] 警告；默认 140/100=config 真源，说书体等题材例外传 --wall 200）──
     para_lens = [count_chars(ln) for ln in lines]
-    walls = [(i + 1, n) for i, n in enumerate(para_lens) if n > 140]
-    walls_warn = [(i + 1, n) for i, n in enumerate(para_lens) if 100 < n <= 140]
+    walls = [(i + 1, n) for i, n in enumerate(para_lens) if n > wall_hard]
+    walls_warn = [(i + 1, n) for i, n in enumerate(para_lens) if wall_warn < n <= wall_hard]
     if walls:
         worst = max(walls, key=lambda x: x[1])
-        failures.append(f"文字墙：{len(walls)} 个段落超140字（最长第{worst[0]}段 {worst[1]} 字）——手机端必须短段，热榜主流≤90")
+        failures.append(f"文字墙：{len(walls)} 个段落超{wall_hard}字（最长第{worst[0]}段 {worst[1]} 字）——手机端必须短段，热榜主流≤90")
     else:
         if walls_warn:
             worst_w = max(walls_warn, key=lambda x: x[1])
@@ -531,12 +538,16 @@ def main():
                     help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查）")
     ap.add_argument("--dialog-max", type=int, default=DIALOG_MAX_DEFAULT, dest="dialog_max",
                     help="对话占比上限%%（默认50，热榜实证；传0关闭）")
+    ap.add_argument("--wall", type=int, default=WALL_HARD, dest="wall_hard",
+                    help=f"文字墙硬卡阈值%%（默认{WALL_HARD}=config真源；说书体/古言等长段题材经书格传 200）")
+    ap.add_argument("--wall-warn", type=int, default=WALL_WARN, dest="wall_warn",
+                    help=f"长段警告阈值%%（默认{WALL_WARN}；须小于 --wall）")
     ap.add_argument("--ai-lite", action="store_true",
                     help="只跑零依赖 AI 味粗测，不执行完整章节硬卡")
     args = ap.parse_args()
     if args.ai_lite:
         sys.exit(ai_lite_check(args.file))
-    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max))
+    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max, args.wall_hard, args.wall_warn))
 
 
 if __name__ == "__main__":

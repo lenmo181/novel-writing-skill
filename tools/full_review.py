@@ -1,34 +1,49 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.33）：全书多维度诊断 → P0-P3 分级 → 修复队列。
+"""全文审稿流水线（v7.34）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
-只读工具：不修改任何文件；报告落盘 mind/全文审稿报告.md。
+职责单一（治理铁律）：**只诊断，不修改**——本工具永不改写正文/档案/大纲。
+产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
+二审：再次运行时自动读取上一轮队列，输出「问题消失/保留/新增/回归」四分类对比节。
+阈值真源：tools/config.py（FULL_REVIEW_* / WALL_*），常量表·十三与之一致，lint/测试守护。
 
-问题统一分级（与《体检》P0-P3 口径一致）：
+问题分级（与《体检》P0-P3 统一口径）：
   P0 设定崩坏/时间线矛盾/章节顺序错误（必须先修）
   P1 明显影响追读（打圈、字数失控、节奏连续同型）
   P2 影响读感（AI味、重复套路、对话极端）
   P3 整洁性（档案滞后、目录日期缺失）
-
-问题统一分类：单章 / 跨章 / 全书 / 设定 / 未知。
+问题分类：单章 / 跨章 / 全书 / 设定 / 未知。
 
 用法：
-  python tools/full_review.py "<项目根>"            # 全书流水线
-  python tools/full_review.py "<项目根>" --strict   # 存在 P0/P1 时退出码 1（可接入发布门）
-  python tools/full_review.py "<项目根>" --json     # JSON 输出
+  python tools/full_review.py "<项目根>"            # 第一轮（或自动二审）
+  python tools/full_review.py "<项目根>" --strict   # 存在 P0/P1 时退出码 1（发布门）
+  python tools/full_review.py "<项目根>" --json     # JSON 输出（含二审对比）
 """
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import SKILL_VERSION  # noqa: E402
+import config  # noqa: E402  阈值延迟绑定（测试可运行时修改 config 验证传播）
 
 DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|去世|离世)")
 CH_NUM_RE = re.compile(r"第(\d{1,5})[章回节]")
 RHYTHM_TYPE_RE = re.compile(r"(主线|峰值|缓冲-对话|缓冲-线索|缓冲-代价|校准)")
+
+# 修复执行层映射（诊断器 → 专项修复器；full_review 自身永不执行修复）
+REPAIR_MAP = {
+    ("全书", "P0"): ("补写缺章或 gen_index.py 重排目录", "仅缺失章号的正文位", "不得重排已有正文章号"),
+    ("设定", "P0"): ("continuity_check.py 定位 → 就地改写或档案修正", "该角色出场段 + mind/角色状态快照.md 对应行", "禁止静默删除出场（回忆/幻觉/替身须在快照标注）"),
+    ("设定", "P1"): ("同上（P0 设定流程）", "同上", "同上"),
+    ("跨章", "P1"): ("章纲层调整：缓冲章三型轮换 / 变量注入", "章纲 + 对应缓冲章", "不整章重写主线章"),
+    ("单章", "P1"): ("润色扩写配方（太短）/ 删冗（超长）；功能章豁免并在目录注明", "该章正文", "不注水、不为达标强删剧情锚点"),
+    ("跨章", "P2"): ("变量注入：换冲突对象/目标/信息/代价之一", "冲突变量层（非语言层）", "禁止只做语言润色（换皮重复润色无效）"),
+    ("单章", "P2"): ("去AI味 8 Gate 定向改写 / 对话归位六式收敛；体裁例外走书格钉参数", "病灶段", "不强加无意义对话/修辞凑指标"),
+    ("跨章", "P2"): ("缓冲-线索章推进，或显式降级/废弃并在追踪表登记", "推进章 + mind/伏笔追踪表.md", "不当章硬回收（信息解密≤30% 红线）"),
+    ("全书", "P3"): ("卷末档案整理", "mind/", "不动正文"),
+    ("单章", "P3"): ("按提示转码/补字段", "该文件", "不重写内容"),
+}
 
 
 def read_text(path):
@@ -61,7 +76,6 @@ def chapter_body(path):
         return None
     lines = [ln.strip() for ln in text.splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith(("#", ">", "---", "|"))]
-    # 剥首个章节标题行
     if lines and CH_NUM_RE.match(lines[0]):
         lines = lines[1:]
     return "\n".join(lines)
@@ -79,12 +93,14 @@ def ngram_set(text, n=3):
 class Review:
     def __init__(self, root):
         self.root = root
-        self.issues = []  # {level, cat, loc, msg, action}
+        self.issues = []
 
-    def add(self, level, cat, loc, msg, action):
+    def add(self, level, cat, loc, msg, evidence=""):
+        rec, scope, forbid = REPAIR_MAP.get((cat, level), REPAIR_MAP.get((cat, "P2"), ("人工裁定", "最小范围", "禁止整章重写")))
         self.issues.append({
             "level": level, "cat": cat, "loc": loc,
-            "msg": msg, "action": action,
+            "msg": msg, "evidence": evidence or msg,
+            "recommended_action": rec, "repair_scope": scope, "forbidden_action": forbid,
         })
 
     # ── 阶段1a：结构（P0 章节断档/重复）──
@@ -93,22 +109,19 @@ class Review:
         dups = sorted({n for n in nums if nums.count(n) > 1})
         if dups:
             self.add("P0", "全书", f"第{','.join(map(str, dups))}章",
-                     f"章节号重复：{dups}",
-                     "核对同名章节，合并或改号（project_audit.py 可复核）")
+                     f"章节号重复：{dups}", f"书稿/ 中第{dups}章存在多文件")
         gaps = []
         for a, b in zip(nums, nums[1:]):
             if b > a + 1:
                 gaps.append(f"第{a + 1}章" if b == a + 2 else f"第{a + 1}-{b - 1}章")
         if gaps:
             self.add("P0", "全书", "；".join(gaps[:6]) + ("…" if len(gaps) > 6 else ""),
-                     f"章节号断档 {len(gaps)} 处（缺章或编号跳号）",
-                     "确认是否缺文件；缺章补写或重排目录（gen_index.py 重建目录）")
+                     f"章节号断档 {len(gaps)} 处（缺章或编号跳号）", f"章号序列缺口：{gaps[:6]}")
         if unrecognized:
             self.add("P3", "全书", "书稿/",
-                     f"{len(unrecognized)} 个文件无法识别章号：{unrecognized[:3]}…",
-                     "按「第XXX章_标题.md」规范重命名")
+                     f"{len(unrecognized)} 个文件无法识别章号：{unrecognized[:3]}…", str(unrecognized[:3]))
 
-    # ── 阶段1b：档案层（P0 死亡复活 / P1 伏笔沉睡）──
+    # ── 阶段1b：档案层（P0 死亡复活 / P2 伏笔沉睡）──
     def scan_archive(self, chapters, cur_max):
         snap = self.root / "mind" / "角色状态快照.md"
         if snap.is_file():
@@ -140,7 +153,7 @@ class Review:
                         lvl = "P0" if not last_ch else ("P0" if len(resurf) >= 2 else "P1")
                         self.add(lvl, "设定", f"{name}（快照标记已故）",
                                  f"已亡角色在第{','.join(map(str, resurf))}章再次出现姓名",
-                                 "若非回忆/幻觉/替身设定 → 就地改写；有意为之 → 快照行标注「回忆出场」")
+                                 f"快照行含死亡标记；正文命中章节：{resurf}")
         foreshadow = self.root / "mind" / "伏笔追踪表.md"
         if foreshadow.is_file() and cur_max:
             text, _ = read_text(foreshadow)
@@ -158,45 +171,50 @@ class Review:
                         stripped = re.sub(r"F\d{1,4}|T(ier)?[-\s]?[123]", "", row, flags=re.I)
                         nums = [int(x) for x in re.findall(r"(\d{1,5})", stripped)]
                     last_push = max((x for x in nums if x <= cur_max), default=None)
-                    limit = {1: None, 2: 40, 3: 20}.get(tier)
+                    limit = {1: None, 2: config.FULL_REVIEW_FORESHADOW_T2, 3: config.FULL_REVIEW_FORESHADOW_T3}.get(tier)
                     if limit and last_push and cur_max - last_push > limit:
                         self.add("P2", "跨章", row[:30],
                                  f"T{tier} 伏笔疑似沉睡：最后推进第{last_push}章，当前第{cur_max}章（阈值{limit}）",
-                                 "安排缓冲-线索章推进或显式降级/废弃（更新追踪表状态）")
+                                 f"追踪表行：{row[:60]}")
 
-    # ── 阶段1c：章节级统计（P1 字数失控 / P2 AI味 / 对话极端）──
-    def scan_chapters(self, chapters, quote_pair=("“", "”")):
+    # ── 阶段1c：章节级统计 ──
+    def scan_chapters(self, chapters):
         stats = []
         prev = None
         for n, p in chapters:
             body = chapter_body(p)
             if body is None:
-                self.add("P3", "单章", f"第{n}章", "文件编码无法解析", "转 UTF-8 后重审")
+                self.add("P3", "单章", f"第{n}章", "文件编码无法解析", str(p))
                 continue
             chars = count_cjk(body)
-            span = sum(count_cjk(m) for m in re.findall("[" + quote_pair[0] + "][^" + quote_pair[1] + "]*[" + quote_pair[1] + "]", body))
+            span = sum(count_cjk(m) for m in re.findall("[“「][^”」]*[”」]", body))
             dpct = round(span * 100 / chars, 1) if chars else 0
             stats.append({"n": n, "chars": chars, "dpct": dpct, "body": body})
             if prev is not None:
                 overlap = len(ngram_set(prev) & ngram_set(body))
                 base = min(len(ngram_set(prev)), len(ngram_set(body))) or 1
-                if overlap * 100 / base > 40:
+                if overlap * 100 / base > config.FULL_REVIEW_NGRAM_OVERLAP_WARN:
                     self.add("P2", "跨章", f"第{n - 1}-{n}章",
-                             f"相邻章 3-gram 重复率 {overlap * 100 // base}%（>40%）疑似换皮重复",
-                             "变量注入破圈：换冲突对象/目标/信息/代价之一（勿只改语言）")
+                             f"相邻章 3-gram 重复率 {overlap * 100 // base}%（>{config.FULL_REVIEW_NGRAM_OVERLAP_WARN}%）疑似换皮重复",
+                             f"重叠 3-gram {overlap}/{base}")
             prev = body
         if not stats:
             return stats
         lens = sorted(s["chars"] for s in stats)
         med = lens[len(lens) // 2] or 1
         for s in stats:
-            if s["chars"] and med >= 1500 and (s["chars"] > med * 1.6 or s["chars"] < med * 0.55):
-                self.add("P1" if s["chars"] > med * 2 else "P2", "单章", f"第{s['n']}章",
-                         f"字数 {s['chars']} 显著偏离书内中位 {med}",
-                         "功能章（加更/加长）可豁免并注明；否则扩写或删冗")
-            if s["dpct"] > 55:
-                self.add("P2", "单章", f"第{s['n']}章", f"对话占比 {s['dpct']}% (>55%)",
-                         "确认是否剧本体；小说体按对话归位六式收敛叙述")
+            if s["chars"] and med >= config.FULL_REVIEW_LENGTH_MIN_MEDIAN:
+                if s["chars"] > med * config.FULL_REVIEW_LENGTH_TOP_RATIO:
+                    self.add("P1", "单章", f"第{s['n']}章",
+                             f"字数 {s['chars']} 显著偏离书内中位 {med}（>{config.FULL_REVIEW_LENGTH_TOP_RATIO}x）",
+                             f"章字数 {s['chars']}；中位 {med}")
+                elif s["chars"] > med * config.FULL_REVIEW_LENGTH_HIGH_RATIO or s["chars"] < med * config.FULL_REVIEW_LENGTH_LOW_RATIO:
+                    self.add("P2", "单章", f"第{s['n']}章",
+                             f"字数 {s['chars']} 偏离书内中位 {med}",
+                             f"章字数 {s['chars']}；中位 {med}")
+            if s["dpct"] > config.FULL_REVIEW_DIALOG_MAX:
+                self.add("P2", "单章", f"第{s['n']}章", f"对话占比 {s['dpct']}% (>{config.FULL_REVIEW_DIALOG_MAX}%)",
+                         f"span {s['dpct']}%")
         return stats
 
     # ── 阶段1d：节奏连续（读章节目录节奏类型列）──
@@ -226,22 +244,65 @@ class Review:
         self._rhythm_flush(run)
 
     def _rhythm_flush(self, run):
-        if len(run) < 3:
+        if len(run) < config.FULL_REVIEW_RHYTHM_SAME_STREAK:
             return
         t = run[0][1]
         n0, n1 = run[0][0], run[-1][0]
-        if t.startswith("缓冲") and len(run) >= 4:
+        if t.startswith("缓冲") and len(run) >= config.FULL_REVIEW_RHYTHM_BUFFER_STREAK:
             self.add("P1", "跨章", f"第{n0}-{n1}章",
-                     f"缓冲型节奏连续 {len(run)} 章（≥4）",
-                     "插入主线/峰值章，或把其中一个缓冲章改为主线推进")
+                     f"缓冲型节奏连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_BUFFER_STREAK}）",
+                     f"章节目录节奏列：{t}×{len(run)}")
         elif not t.startswith("缓冲"):
             self.add("P1", "跨章", f"第{n0}-{n1}章",
-                     f"节奏类型「{t}」连续 {len(run)} 章（≥3）",
-                     "按缓冲章三型轮换（grep_consistency.py D 类同源）")
+                     f"节奏类型「{t}」连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_SAME_STREAK}）",
+                     f"章节目录节奏列：{t}×{len(run)}")
 
 
 P_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 CAT_ORDER = {"设定": 0, "全书": 1, "跨章": 2, "单章": 3, "未知": 4}
+
+
+def issue_key(it):
+    return (it["cat"], it["loc"], it["msg"])
+
+
+def build_queue(issues, round_no, prev_items=None):
+    """生成修复队列十字段；继承上轮同 key 的处理状态（fixed/wont_fix 保留）。"""
+    prev_status = {issue_key(p): p.get("status", "open") for p in (prev_items or [])}
+    queue = []
+    for i, it in enumerate(issues, 1):
+        key = issue_key(it)
+        status = prev_status.get(key, "open")
+        item = {"issue_id": f"FR-{round_no:02d}-{i:03d}", **it, "status": status}
+        queue.append(item)
+    return queue
+
+
+def diff_rounds(prev_items, cur_queue, resolved_log=None):
+    """二审对比：resolved/persisted/new/regressed 四分类。
+
+    回归判定依赖跨轮记忆：resolved_log 累积历轮已消失的问题位置（cat, loc），
+    本轮新增问题命中历史已修复位置 = 回归（防「修了又犯」被当新问题放过）。
+    """
+    prev_keys = {issue_key(p) for p in prev_items}
+    cur_keys = {issue_key(q) for q in cur_queue}
+    fixed_locs = {(p["cat"], p["loc"]) for p in prev_items if p.get("status") == "fixed"}
+    for rec in (resolved_log or []):
+        fixed_locs.add((rec.get("cat"), rec.get("loc")))
+    resolved = [p for p in prev_items if issue_key(p) not in cur_keys]
+    persisted = [q for q in cur_queue if issue_key(q) in prev_keys]
+    new_items = [q for q in cur_queue if issue_key(q) not in prev_keys]
+    regressed = [q for q in new_items if (q["cat"], q["loc"]) in fixed_locs]
+    return {
+        "resolved": [{"cat": p["cat"], "loc": p["loc"], "msg": p["msg"], "prev_status": p.get("status", "open")} for p in resolved],
+        "persisted": [{"issue_id": q["issue_id"], "loc": q["loc"], "msg": q["msg"]} for q in persisted],
+        "new": [{"issue_id": q["issue_id"], "loc": q["loc"], "msg": q["msg"]} for q in new_items],
+        "regressed": [{"issue_id": q["issue_id"], "loc": q["loc"], "msg": q["msg"]} for q in regressed],
+    }
+
+
+QUEUE_PATH = "mind/全文审稿队列.json"
+REPORT_PATH = "mind/全文审稿报告.md"
 
 
 def run_review(root, strict=False, as_json=False):
@@ -260,52 +321,96 @@ def run_review(root, strict=False, as_json=False):
     rv.scan_rhythm(root, stats)
     issues = sorted(rv.issues, key=lambda i: (P_ORDER.get(i["level"], 9), CAT_ORDER.get(i["cat"], 9)))
 
-    counts = {lv: sum(1 for i in issues if i["level"] == lv) for lv in ("P0", "P1", "P2", "P3")}
-    report_path = root / "mind" / "全文审稿报告.md"
+    # 上一轮队列（存在则进入二审；resolved_log 为跨轮回归记忆）
+    qpath = root / QUEUE_PATH
+    prev_items, round_no, resolved_log = [], 1, []
+    if qpath.is_file():
+        try:
+            prev = json.loads(qpath.read_text(encoding="utf-8"))
+            prev_items = prev.get("issues") or []
+            round_no = int(prev.get("round", 1)) + 1
+            resolved_log = prev.get("resolved_log") or []
+        except (ValueError, OSError):
+            prev_items = []
+    queue = build_queue(issues, round_no, prev_items)
+    d = diff_rounds(prev_items, queue, resolved_log) if (prev_items or resolved_log) else None
+    if d is not None:
+        resolved_log = resolved_log + d["resolved"][-200:]  # 累积已消失问题（截尾防无限增长）
+
+    counts = {lv: sum(1 for q in queue if q["level"] == lv) for lv in ("P0", "P1", "P2", "P3")}
+    queue_doc = {
+        "version": config.SKILL_VERSION, "round": round_no, "n_chapters": len(chapters),
+        "to_chapter": cur_max, "counts": counts, "issues": queue, "resolved_log": resolved_log,
+    }
+    try:
+        qpath.parent.mkdir(parents=True, exist_ok=True)
+        qpath.write_text(json.dumps(queue_doc, ensure_ascii=False, indent=1), encoding="utf-8")
+        q_saved = str(qpath)
+    except OSError as e:
+        q_saved = f"队列落盘失败：{e}"
+
     lines = [
         "# 全文审稿报告（full_review.py）",
         "",
-        f"- 版本：v{SKILL_VERSION}；项目：{root.name}；扫描章节：{len(chapters)}（至第{cur_max}章）",
+        f"- 版本：v{config.SKILL_VERSION}；项目：{root.name}；扫描章节：{len(chapters)}（至第{cur_max}章）；轮次：第 {round_no} 轮",
         f"- 结论：P0×{counts['P0']} P1×{counts['P1']} P2×{counts['P2']} P3×{counts['P3']}",
         "- 分级：P0 设定崩坏/顺序错误｜P1 影响追读｜P2 影响读感｜P3 整洁性；类别：设定/全书/跨章/单章",
-        "- 本工具只读；修复动作按队列逐项人工确认后执行，禁止销毁式重写",
+        "- 本工具只诊断不修复；修复按 mind/全文审稿队列.json 逐条执行（十字段：issue_id/level/category/chapter/problem/evidence/recommended_action/repair_scope/forbidden_action/status），修后重跑本工具出二审对比",
         "",
-        "| # | 级别 | 类别 | 位置 | 问题 | 建议动作 |",
-        "|---|------|------|------|------|---------|",
+        "| issue_id | 级别 | 类别 | 位置 | 问题 | 建议动作 | 修复范围 | 禁止动作 | 状态 |",
+        "|---|------|------|------|------|---------|---------|---------|------|",
     ]
-    for i, it in enumerate(issues, 1):
-        lines.append(f"| {i} | {it['level']} | {it['cat']} | {it['loc']} | {it['msg']} | {it['action']} |")
+    for q in queue:
+        lines.append(f"| {q['issue_id']} | {q['level']} | {q['cat']} | {q['loc']} | {q['msg']} | {q['recommended_action']} | {q['repair_scope']} | {q['forbidden_action']} | {q['status']} |")
+    if d is not None:
+        lines += [
+            "",
+            f"## 二审对比（第 {round_no - 1} 轮 → 第 {round_no} 轮）",
+            "",
+            f"- 问题消失：{len(d['resolved'])} 项（其中登记已修复：{sum(1 for r in d['resolved'] if r['prev_status'] == 'fixed')}）",
+            f"- 问题保留：{len(d['persisted'])} 项",
+            f"- 新增问题：{len(d['new'])} 项",
+            f"- 回归问题：{len(d['regressed'])} 项（上轮已修复位置再次出问题——优先回查修复方式）",
+        ]
+        for tag, items in (("消失", d["resolved"]), ("保留", d["persisted"]), ("新增", d["new"]), ("回归", d["regressed"])):
+            for it in items[:8]:
+                lines.append(f"  - [{tag}] {it['loc']}｜{it['msg']}")
     report = "\n".join(lines) + "\n"
+    rpath = root / REPORT_PATH
     try:
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(report, encoding="utf-8")
-        saved = str(report_path)
+        rpath.parent.mkdir(parents=True, exist_ok=True)
+        rpath.write_text(report, encoding="utf-8")
+        r_saved = str(rpath)
     except OSError as e:
-        saved = f"落盘失败：{e}"
+        r_saved = f"报告落盘失败：{e}"
 
     if as_json:
-        print(json.dumps({"version": SKILL_VERSION, "n_chapters": len(chapters),
-                          "counts": counts, "issues": issues, "report": saved},
+        print(json.dumps({**queue_doc, "round_diff": d, "queue": q_saved, "report": r_saved},
                          ensure_ascii=False, indent=1))
     else:
-        print(f"[i] 全文审稿（v{SKILL_VERSION}）：{len(chapters)} 章，问题 {len(issues)} 项 "
+        print(f"[i] 全文审稿（v{config.SKILL_VERSION}）第 {round_no} 轮：{len(chapters)} 章，问题 {len(queue)} 项 "
               f"(P0={counts['P0']} P1={counts['P1']} P2={counts['P2']} P3={counts['P3']})")
-        for i, it in enumerate(issues[:40], 1):
-            print(f"[{it['level']}][{it['cat']}] {it['loc']}｜{it['msg']}｜→ {it['action']}")
-        if len(issues) > 40:
-            print(f"[i] 其余 {len(issues) - 40} 项见报告")
-        print(f"[i] 报告已落盘：{saved}")
+        for q in queue[:40]:
+            print(f"[{q['level']}][{q['cat']}] {q['loc']}｜{q['msg']}｜→ {q['recommended_action']}｜范围：{q['repair_scope']}")
+        if len(queue) > 40:
+            print(f"[i] 其余 {len(queue) - 40} 项见队列")
+        if d is not None:
+            print(f"[i] 二审对比：消失 {len(d['resolved'])}｜保留 {len(d['persisted'])}｜新增 {len(d['new'])}｜回归 {len(d['regressed'])}")
+            for it in d["regressed"][:5]:
+                print(f"[!] 回归：{it['loc']}｜{it['msg']}（该位置上轮已修复——回查修复方式）")
+        print(f"[i] 队列：{q_saved}")
+        print(f"[i] 报告：{r_saved}")
         if counts["P0"]:
-            print("[!] 存在 P0：必须先修再续写（就地修复，逐项确认）")
+            print("[!] 存在 P0：必须先修再续写（按队列逐项确认，禁止销毁式重写）")
     if strict and (counts["P0"] or counts["P1"]):
         return 1
     return 0
 
 
 def main():
-    ap = argparse.ArgumentParser(description="全文审稿流水线（只读）：P0-P3 分级 + 修复队列")
+    ap = argparse.ArgumentParser(description="全文审稿流水线（只读诊断）：P0-P3 分级 + 修复队列 + 二审对比")
     ap.add_argument("project", help="小说项目根目录")
-    ap.add_argument("--strict", action="store_true", help="存在 P0/P1 时退出码 1（可接入发布门）")
+    ap.add_argument("--strict", action="store_true", help="存在 P0/P1 时退出码 1（发布门）")
     ap.add_argument("--json", action="store_true", help="JSON 输出")
     args = ap.parse_args()
     sys.exit(run_review(Path(args.project).expanduser(), strict=args.strict, as_json=args.json))

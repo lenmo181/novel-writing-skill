@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-cover_check.py — 网络小说创作技能 v7.33 封面机械质检
+cover_check.py — 网络小说创作技能 v7.34 封面机械质检
 用法: python cover_check.py <封面图片.png|jpg> [--platform fanqie|qidian|custom]
                              [--expect WxH] [--prompt-strict]
 检查项（机械可判定，语义项=文字渲染/题材/构图由 AI 看图核验，见 references/封面.md）:

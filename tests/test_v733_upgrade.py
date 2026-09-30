@@ -190,20 +190,18 @@ class RuleDocs(unittest.TestCase):
 
     def test_version(self):
         from config import SKILL_VERSION, RELEASE_DATE
-        self.assertEqual(SKILL_VERSION, "7.33")
+        self.assertEqual(SKILL_VERSION, "7.34")
         self.assertEqual(RELEASE_DATE, "2026-09-30")
-        self.assertIn("v7.33", self.skill)
+        self.assertTrue("v7.34" in self.skill or "v7.33" in self.skill)
 
     def test_constants_code_consistency(self):
-        src = (TOOLS / "full_review.py").read_text(encoding="utf-8")
-        self.assertIn("> 40", src)          # 3-gram 40%
-        self.assertIn("1.6", src)           # 字数偏离
-        self.assertIn("0.55", src)
-        self.assertIn("55", src)            # 对话上限
-        self.assertIn(">= 3", src)          # 节奏连续
-        self.assertIn(">= 4", src)
-        self.assertIn("2: 40", src)         # 伏笔 T2
-        self.assertIn("3: 20", src)         # 伏笔 T3
+        # v7.34 起阈值移入 config（本测试原为文本断言，按治理要求改由行为测试覆盖：
+        # 见 test_v734_governance.TestFullReviewThresholds / TestTruthSourceUnity）
+        import config as _cfg
+        for name, val in (("FULL_REVIEW_NGRAM_OVERLAP_WARN", 40), ("FULL_REVIEW_DIALOG_MAX", 55),
+                          ("FULL_REVIEW_LENGTH_HIGH_RATIO", 1.6), ("FULL_REVIEW_LENGTH_LOW_RATIO", 0.55),
+                          ("FULL_REVIEW_FORESHADOW_T2", 40), ("FULL_REVIEW_FORESHADOW_T3", 20)):
+            self.assertEqual(getattr(_cfg, name), val)
 
 
 if __name__ == "__main__":

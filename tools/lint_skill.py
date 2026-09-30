@@ -17,10 +17,21 @@ from config import (
     DEFAULT_MOCHI_MIN,
     DEFAULT_ZHUQUE_THRESHOLD,
     DEFAULT_ZHUQUE_WARN,
+    FULL_REVIEW_DIALOG_MAX,
+    FULL_REVIEW_FORESHADOW_T2,
+    FULL_REVIEW_FORESHADOW_T3,
+    FULL_REVIEW_LENGTH_HIGH_RATIO,
+    FULL_REVIEW_LENGTH_LOW_RATIO,
+    FULL_REVIEW_LENGTH_MIN_MEDIAN,
+    FULL_REVIEW_NGRAM_OVERLAP_WARN,
+    FULL_REVIEW_RHYTHM_BUFFER_STREAK,
+    FULL_REVIEW_RHYTHM_SAME_STREAK,
     SKILL_VERSION,
     RELEASE_DATE,
     TITLE_MAX,
     TITLE_MIN,
+    WALL_HARD,
+    WALL_WARN,
 )
 
 
@@ -130,6 +141,66 @@ def main() -> int:
         fail(errors, "zhuque_check.py 仍直接硬编码阈值默认值")
     if "default=9" in read("tools/mochi_check.py") or "default=8" in read("tools/mochi_check.py"):
         fail(errors, "mochi_check.py 仍直接硬编码阈值默认值")
+
+
+    # ── v7.34 规则治理五检 ──
+    # 1) 规则台账完整性：RB 行数、字段对齐、状态枚举、执行工具/对应测试列必须有内容
+    ledger = read("references/规则台账.md")
+    rb_rows = [m.group(0) for m in re.finditer(r"^\| RB-\d{3} \|.*$", ledger, re.M)]
+    if len(rb_rows) < 25:
+        fail(errors, f"规则台账 RB 条目不足（{len(rb_rows)} < 25）")
+    ids = [r.split("|")[1].strip() for r in rb_rows]
+    if len(ids) != len(set(ids)):
+        fail(errors, "规则台账 RB 编号重复")
+    for r in rb_rows:
+        cells = [c.strip() for c in r.split("|")[1:-1]]
+        if len(cells) != 9:
+            fail(errors, f"规则台账行字段数异常（应为9列）：{r[:40]}…")
+            break
+        if cells[5] not in ("候选", "实验", "稳定", "修正", "废弃"):
+            fail(errors, f"规则台账状态枚举非法：{cells[0]}={cells[5]}")
+            break
+        if not cells[7] or not cells[8]:
+            fail(errors, f"规则台账缺执行工具或对应测试（治理缺环）：{cells[0]}")
+            break
+
+    # 2) 常量完整性：config 的墙/审稿常量必须在常量表有同值记载
+    const_text = read("references/常量表.md")
+    const_expect = [
+        (str(WALL_HARD), "WALL_HARD"), (str(WALL_WARN), "WALL_WARN"),
+        (f"{FULL_REVIEW_LENGTH_HIGH_RATIO}", "FULL_REVIEW_LENGTH_HIGH_RATIO"),
+        (f"{FULL_REVIEW_LENGTH_LOW_RATIO}", "FULL_REVIEW_LENGTH_LOW_RATIO"),
+        (str(FULL_REVIEW_DIALOG_MAX), "FULL_REVIEW_DIALOG_MAX"),
+        (str(FULL_REVIEW_NGRAM_OVERLAP_WARN), "FULL_REVIEW_NGRAM_OVERLAP_WARN"),
+        (str(FULL_REVIEW_FORESHADOW_T2), "FULL_REVIEW_FORESHADOW_T2"),
+        (str(FULL_REVIEW_FORESHADOW_T3), "FULL_REVIEW_FORESHADOW_T3"),
+    ]
+    for value, name in const_expect:
+        if value not in const_text:
+            fail(errors, f"常量表未记载 config 值 {name}={value}（真源漂移）")
+
+    # 3) 工具映射：常量表引用的 tools/*.py 必须存在
+    for m in set(re.findall(r"tools/([a-z_]+\.py)", const_text)):
+        if not (ROOT / "tools" / m).is_file():
+            fail(errors, f"常量表引用的工具不存在：tools/{m}")
+
+    # 4) 测试映射：治理回归测试必须存在
+    for tf in ("test_v733_upgrade.py", "test_v734_governance.py"):
+        if not (ROOT / "tests" / tf).is_file():
+            fail(errors, f"治理测试缺失：tests/{tf}")
+
+    # 5) 活跃手册版本：14 册活跃手册头部必须标当前版本
+    active_manuals = [
+        "references/快速开始.md", "references/工具选择.md", "references/操作范例.md",
+        "references/模式操作卡.md", "references/评测场景.md", "references/评测量表.md",
+        "references/回执协议.md", "references/规则台账.md", "references/体检.md",
+        "references/去AI味.md", "references/常量表.md", "references/开源融合.md",
+        "references/热榜研究.md", "references/热榜知识库.md",
+    ]
+    for m in active_manuals:
+        head = read(m)[:400]
+        if f"v{SKILL_VERSION}" not in head:
+            fail(errors, f"活跃手册版本漂移：{m} 头部未标 v{SKILL_VERSION}")
 
     if errors:
         for error in errors:
