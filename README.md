@@ -524,7 +524,6 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 最近版本重点：
 
 - **v7.39**：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate、runtime 全量 parity 与回归补盲。
-- **v7.39**：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate、runtime parity 与回归补盲。
 - **v7.38**：Apache 2.0 许可证、NOTICE、安全/贡献/仓库配置、CI 发布门和回归治理。
 - **v7.37**：章节交付 Gate、全文修复编排、项目审计日志、轻量记忆检索、JSON Schema。
 - **v7.36**：30 项核心校验注册表、规则 → 执行器 → 测试闭环。
