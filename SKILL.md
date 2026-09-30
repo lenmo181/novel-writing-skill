@@ -44,7 +44,8 @@ description: "面向网文作者的写作与项目维护技能：在明确的小
 │   ├── init_project.py       # 一键创建标准项目骨架（默认不覆盖）
 │   ├── entity_index.py       # 角色别名、关系和出场台账（只读）
 │   ├── project_health.py     # 汇总结构、连续性和档案健康报告（只读）
-│   ├── full_review.py        # 全文审稿流水线：P0-P3分级+五类问题+修复队列（只读，v7.33）
+│   ├── full_review.py        # 全文审稿流水线：P0-P3分级+修复队列+二审回归（只读，v7.36）
+│   ├── repair_runner.py       # 修复队列状态执行层：fixed/reopened/wont_fix（不直接改正文）
 │   └── research_audit.py     # 研究来源台账字段与可追溯性检查（只读）
 ├── references/              # 手册按路由表按需读取，不要一次全读
 │   ├── 运行时兼容.md          # Codex/ZCode/PowerShell/CMD/Bash 路径、环境变量与隐私边界
