@@ -635,9 +635,7 @@ python tools/zhuque_check.py --book "<项目根>" --only 3,7-12   # 修复后只
 
 ### 第五步：更新档案与可选产物
 
-**v7.39 章节交付增强：**正式交付可运行 `tools/chapter_readiness.py <项目根> <章节> --with-semantic --full --json`。它会额外验证 `mind/审校/第XXX章审校.json` 是否逐项覆盖第14-30项并提供 `status + evidence`；存在 `revise/blocked` 时不得落交付断点。
-
-**v7.39 交付 Gate：**正式交付可运行 `tools/chapter_readiness.py <项目根> <章节> --with-semantic --full --json`。它要求 `mind/审校/第XXX章审校.json` 覆盖第14-30项，每项有 `status + evidence`；不得把 `revise/blocked` 伪装成通过。
+**v7.39 章节交付 Gate：**正式交付运行 `tools/chapter_readiness.py <项目根> <章节> --with-semantic --full --json`。它会校验 `mind/审校/第XXX章审校.json` 覆盖第14-30项、每项有 `status + evidence`、版本和当前正文 `chapter_sha256` 匹配；存在 `revise/blocked` 或正文已变更而未重新审校时，不得落交付断点。
 章节落盘 `书稿/第XXX章_章节名.md`（**章节名按《章节名规范》起：与章末钩子同源、2-12字平台风格，写完正文后按实际钩子定名再落盘**）；所有级别都更新本章直接依赖的 **mind/ 档案 + 单章回顾**；标准级按项目需要补阶段回顾和剧本同步；深度级才强制运行 `tools/script_check.py`、`tools/continuity_check.py`、外部检测和 `tools/visualize.py`。看板刷新失败不阻塞正文交付。
 
 **防失控**：单轮批量写作默认1章、日更≤3章；`一键生成`模式不受限但每章完整走五步并立即落盘。
