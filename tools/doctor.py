@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.37）。
+"""技能包统一自检（v7.38）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -85,6 +85,11 @@ RUNTIME_TOOLS = (
     "entity_index.py",
     "project_health.py",
     "full_review.py",
+    "chapter_readiness.py",
+    "repair_orchestrator.py",
+    "audit_log.py",
+    "memory_search.py",
+    "repair_runner.py",
 )
 
 
