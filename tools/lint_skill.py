@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.35）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.36）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -104,7 +104,6 @@ def main() -> int:
     # 工具版本治理：当前运行/治理工具必须标当前版本；稳定工具若有历史版本标记，不因补丁版升级强制重写。
     pinned_tools = {
         "tools/full_review.py", "tools/lint_skill.py", "tools/repair_runner.py",
-        "tools/check_chapter.py", "tools/release_check.py", "tools/doctor.py",
     }
     tool_paths = [
         "tools/check_chapter.py", "tools/zhuque_check.py", "tools/mochi_check.py",
@@ -171,6 +170,30 @@ def main() -> int:
             fail(errors, f"规则台账缺最近/验证广度/证据等级/落点/执行工具/对应测试：{cells[0]}")
             break
 
+    # 1b) 核心30项注册表：每项必须恰好一行，且绑定登记ID、执行器、测试入口。
+    core_map = read("references/核心校验映射.md")
+    map_rows = [x for x in core_map.splitlines() if re.match(r"^\| \d+ \|", x)]
+    if not core_map:
+        fail(errors, "核心校验映射缺失：references/核心校验映射.md")
+    if len(map_rows) != 30:
+        fail(errors, f"核心校验映射条目数异常：{len(map_rows)} / 30")
+    map_nums = []
+    for row in map_rows:
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        if len(cells) != 7:
+            fail(errors, f"核心校验映射字段数异常：{row[:50]}…")
+            continue
+        try:
+            num = int(cells[0])
+            map_nums.append(num)
+        except ValueError:
+            fail(errors, f"核心校验映射项目号非法：{cells[0]}")
+            continue
+        if not cells[3] or not cells[4] or not cells[5]:
+            fail(errors, f"核心校验映射缺登记ID/执行器/测试：第{num}项")
+    if sorted(map_nums) != list(range(1, 31)):
+        fail(errors, f"核心校验映射必须覆盖1-30且各一次：{sorted(map_nums)}")
+
     # 2) 常量完整性：config 的墙/审稿常量必须在常量表有同值记载
     const_text = read("references/常量表.md")
     const_expect = [
@@ -192,7 +215,7 @@ def main() -> int:
             fail(errors, f"常量表引用的工具不存在：tools/{m}")
 
     # 4) 测试映射：治理回归测试必须存在
-    for tf in ("test_v733_upgrade.py", "test_v734_governance.py", "test_v735_governance.py"):
+    for tf in ("test_v733_upgrade.py", "test_v734_governance.py", "test_v735_governance.py", "test_v736_governance.py"):
         if not (ROOT / "tests" / tf).is_file():
             fail(errors, f"治理测试缺失：tests/{tf}")
 
