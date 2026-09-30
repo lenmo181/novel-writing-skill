@@ -84,9 +84,17 @@ class TestV739Hardening(unittest.TestCase):
             (root / "mind" / "审校").mkdir(parents=True)
             (root / "书稿" / "第001章_测试.md").write_text("第1章 测试\n\n正文。\n", encoding="utf-8")
             checks = {str(i): {"status": "pass", "evidence": f"证据{i}", "location": f"第{i}项"} for i in range(14, 31)}
-            (root / "mind" / "审校" / "第001章审校.json").write_text(json.dumps({"version": "7.39", "chapter": 1, "checks": checks}, ensure_ascii=False), encoding="utf-8")
+            import hashlib
+            digest = hashlib.sha256((root / "书稿" / "第001章_测试.md").read_bytes()).hexdigest()
+            (root / "mind" / "审校" / "第001章审校.json").write_text(
+                json.dumps({"version": "7.39", "chapter": 1, "chapter_sha256": digest, "checks": checks}, ensure_ascii=False),
+                encoding="utf-8")
             result = cr.semantic_gate(root, 1)
             self.assertTrue(result["ok"])
+            (root / "书稿" / "第001章_测试.md").write_text("第1章 测试\n\n正文变更。\n", encoding="utf-8")
+            stale = cr.semantic_gate(root, 1)
+            self.assertFalse(stale["ok"])
+            self.assertIn("chapter_sha256", " ".join(stale["tail"]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
