@@ -40,7 +40,7 @@ def semantic_gate(root, chapter):
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": [f"审校记录无法解析：{exc}"]}
     if data.get("chapter") != chapter:
-        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 chapter={data.get(chr(34)+chr(34))} 与目标第{chapter}章不一致"]}
+        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 chapter={data.get("chapter")} 与目标第{chapter}章不一致"]}
     checks = data.get("checks")
     if not isinstance(checks, dict):
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["checks 必须是对象，覆盖校验14-30"]}
@@ -106,14 +106,24 @@ def main(argv=None):
     return 2 if report.get("input_error") else (0 if report["ok"] else 1)
 
 def render(report):
-    lines = [f"# 章节交付 Gate（v{report[chr(39)+chr(118)+chr(101)+chr(114)+chr(115)+chr(105)+chr(111)+chr(110)]}）", "",
-             f"- 第 {report[chr(39)+chr(99)+chr(104)+chr(97)+chr(112)+chr(116)+chr(101)+chr(114)]} 章：`{report.get(chr(39)+chr(116)+chr(97)+chr(114)+chr(103)+chr(101)+chr(116), chr(39)-chr(39))}`",
-             "- 时间：" + report.get("generated_at", ""), "", "| Gate | 结果 | 退出码 |", "|---|---|---:|"]
+    lines = [
+        f"# 章节交付 Gate（v{report['version']}）",
+        "",
+        f"- 第 {report['chapter']} 章：`{report.get('target', '-')}`",
+        "- 时间：" + report.get("generated_at", ""),
+        "",
+        "| Gate | 结果 | 退出码 |",
+        "|---|---|---:|",
+    ]
     for gate in report["gates"]:
-        lines.append(f"| {gate[chr(39)+chr(110)+chr(97)+chr(109)+chr(101)]} | {chr(39)+chr(80)+chr(65)+chr(83)+chr(83) if gate[chr(39)+chr(111)+chr(107)] else chr(39)+chr(82)+chr(69)+chr(86)+chr(73)+chr(83)+chr(69)} | {gate[chr(39)+chr(101)+chr(120)+chr(105)+chr(116)+chr(95)+chr(99)+chr(111)+chr(100)+chr(101)]} |")
-    lines += ["", "结论：" + ("PASS，可进入交付/作者验收。" if report["ok"] else "REVISE，先处理失败 Gate。"), "",
-              "语义 Gate 需要第14-30项逐项 evidence；本工具只验证记录完整性，不代替作者/AI做文学判断。",
-              "失败 Gate 的详细输出已保留在 JSON 报告中；本工具不修改正文。"]
+        lines.append('f'| {gate["name"]} | {"PASS" if gate["ok"] else "REVISE"} | {gate["exit_code"]} |')
+    lines += [
+        "",
+        "结论：" + ("PASS，可进入交付/作者验收。" if report["ok"] else "REVISE，先处理失败 Gate。"),
+        "",
+        "语义 Gate 需要第14-30项逐项 evidence；本工具只验证记录完整性，不代替作者/AI做文学判断。",
+        "失败 Gate 的详细输出已保留在 JSON 报告中；本工具不修改正文。",
+    ]
     return "\n".join(lines)
 
 if __name__ == "__main__":
