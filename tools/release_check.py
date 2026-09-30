@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""发布前只读预检（v7.35）。
+"""发布前只读预检（v7.37）。
 
 运行技能自检、评测矩阵、lint、引用检查和可选回归测试；
 可额外比对本地安装副本。不会上传 SkillHub，也不会替换任何文件。
@@ -29,16 +29,27 @@ COMPARE_FILES = (
     "tools/entity_index.py",
     "tools/project_health.py",
     "tools/full_review.py",
+    "tools/chapter_readiness.py",
+    "tools/repair_orchestrator.py",
+    "tools/audit_log.py",
+    "tools/memory_search.py",
     "references/快速开始.md",
     "references/工具选择.md",
     "references/研究来源.md",
     "references/常见问题.md",
     "references/模式操作卡.md",
     "references/规则台账.md",
+    "references/核心校验映射.md",
+    "references/版本台账.md",
+    "references/工程化能力矩阵.md",
     "references/评测场景.md",
     "references/评测量表.md",
     "references/回执协议.md",
     "references/开源融合.md",
+    "SECURITY.md",
+    "schemas/full_review_queue.schema.json",
+    "schemas/project_metadata.schema.json",
+    "schemas/chapter_readiness.schema.json",
 )
 
 
