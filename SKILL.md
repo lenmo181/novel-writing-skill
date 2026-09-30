@@ -867,8 +867,6 @@ python tools/zhuque_check.py --book "<项目根>" --only 3,7-12   # 修复后只
 - **v7.39（2026-09-30）**：修复全文修复编排器隐式写入、`--limit 0` B类漏检、混合缓冲节奏漏检和角色快照解析漂移；新增 Canonical Parser、最小范围机械修复、显式 `--apply` 授权、第14-30项语义证据 Gate 与 runtime parity 回归。
 
 
-- **v7.39（2026-09-30）：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate 与 runtime parity 收敛版**——修复全文修复编排器隐式写入、统一角色快照解析、修复混合缓冲节奏漏检与 `--limit 0` 语义、增加章节语义证据记录和发布副本全量 runtime 比对。
-
 
 - **v7.38（2026-09-30）：许可证与仓库配置工程版**——切换为标准 Apache License 2.0；新增 NOTICE、CONTRIBUTING、SECURITY、CODEOWNERS、Dependabot、Issue/PR 模板、EditorConfig、Git 属性和 CI 发布门，并同步版本真源。
 
