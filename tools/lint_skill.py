@@ -178,6 +178,7 @@ def main() -> int:
     if len(map_rows) != 30:
         fail(errors, f"核心校验映射条目数异常：{len(map_rows)} / 30")
     map_nums = []
+    ledger_ids = set(re.findall(r"^\| (RB-\d{3}) \|", ledger, re.M))
     for row in map_rows:
         cells = [c.strip() for c in row.split("|")[1:-1]]
         if len(cells) != 7:
@@ -191,6 +192,9 @@ def main() -> int:
             continue
         if not cells[3] or not cells[4] or not cells[5]:
             fail(errors, f"核心校验映射缺登记ID/执行器/测试：第{num}项")
+        for rid in re.findall(r"RB-\d{3}", cells[3]):
+            if rid not in ledger_ids:
+                fail(errors, f"核心校验映射引用不存在的规则台账ID：第{num}项→{rid}")
     if sorted(map_nums) != list(range(1, 31)):
         fail(errors, f"核心校验映射必须覆盖1-30且各一次：{sorted(map_nums)}")
 
