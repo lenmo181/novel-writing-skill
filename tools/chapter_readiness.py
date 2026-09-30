@@ -40,7 +40,7 @@ def semantic_gate(root, chapter):
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": [f"审校记录无法解析：{exc}"]}
     if data.get("chapter") != chapter:
-        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 chapter={data.get("chapter")} 与目标第{chapter}章不一致"]}
+        return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 chapter={data.get('chapter')} 与目标第{chapter}章不一致"]}
     checks = data.get("checks")
     if not isinstance(checks, dict):
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["checks 必须是对象，覆盖校验14-30"]}
