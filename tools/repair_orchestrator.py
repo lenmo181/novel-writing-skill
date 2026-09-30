@@ -119,6 +119,8 @@ def resolve_targets(root):
     for issue in plan.get("issues", []):
         if issue.get("repair_mode") != "mechanical_candidate":
             continue
+        if issue.get("status", "open") not in {"open", "reopened"}:
+            continue
         loc = str(issue.get("loc", ""))
         chapter_nums = {int(x) for x in re.findall(r"第\s*(\d{1,6})\s*章", loc)}
         for number in sorted(chapter_nums):
@@ -147,8 +149,9 @@ def apply_mechanical(root, files):
     snap, _ = snapshot_project.create_snapshot(root, "pre-repair-mechanical", include_chapters=True)
     command = [sys.executable, str(Path(__file__).resolve().parent / "fix_said_tags.py"), "--files", *map(str, files), "--walls", "--meta"]
     result = run_cmd(command, root)
-    status = "auto_fixed" if result["ok"] else "open"
-    audit_log.append_event(root, "mechanical_repair", str(root / "书稿"), status,
+    # 进程 exit=0 只代表修复器执行完，不代表病灶已经消失。
+    # “auto_fixed” 只在后续 verify 成功后由 cycle 单独登记。
+    audit_log.append_event(root, "mechanical_repair", str(root / "书稿"), "applied",
                            {"snapshot": str(snap), "exit_code": result["exit_code"],
                             "files": [str(p.relative_to(root)) for p in files]})
     return {"snapshot": str(snap), "files": [str(p) for p in files], "repair": result}
@@ -194,6 +197,9 @@ def main(argv=None):
                 files = resolve_targets(root)
                 applied = apply_mechanical(root, files)
                 checked = verify(root, args.full)
+                verified_status = "auto_fixed" if checked["ok"] else "open"
+                audit_log.append_event(root, "mechanical_repair_verified", str(QUEUE), verified_status,
+                                       {"exit_code": checked["exit_code"], "snapshot": applied.get("snapshot")})
                 result = {"plan": str(path), "apply": applied, "verify": checked, "ok": bool(checked["ok"])}
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"[✗] 修复编排失败：{exc}")
