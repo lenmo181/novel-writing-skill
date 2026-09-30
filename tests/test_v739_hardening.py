@@ -35,6 +35,42 @@ class TestV739Hardening(unittest.TestCase):
             self.assertEqual(data["李四"]["最后出场"], "第12章")
             self.assertEqual(data["李四"]["别名"], "小李、阿四")
 
+    def test_canonical_parser_legacy_role_table(self):
+        parser = load_mod("canonical_parser")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "角色状态快照.md"
+            path.write_text(
+                "| 角色 | 别名 | 状态 | 最后出场 |\n"
+                "|---|---|---|---|\n"
+                "| 张三 | 阿三 | 已亡 | 第12章 |\n",
+                encoding="utf-8")
+            data = parser.parse_role_snapshot(path)
+            self.assertEqual(data["张三"]["状态"], "已亡")
+            self.assertEqual(data["张三"]["最后出场"], "第12章")
+            self.assertEqual(data["张三"]["别名"], "阿三")
+
+    def test_repair_runner_accepts_prior_738_queue(self):
+        rr = load_mod("repair_runner")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mind").mkdir()
+            queue = root / "mind" / "全文审稿队列.json"
+            issue = {
+                "issue_id":"FR-01-001","level":"P2","cat":"单章","loc":"第1章","msg":"x",
+                "evidence":"e","recommended_action":"a","repair_scope":"s","forbidden_action":"f","status":"open"
+            }
+            queue.write_text(json.dumps({"version":"7.38","issues":[issue]}, ensure_ascii=False), encoding="utf-8")
+            _, doc = rr.load_queue(root)
+            self.assertEqual(doc["version"], "7.38")
+            self.assertEqual(rr.set_status(root, "FR-01-001", "fixed"), 0)
+            saved = json.loads(queue.read_text(encoding="utf-8"))
+            self.assertEqual(saved["version"], "7.39")
+            self.assertEqual(saved["issues"][0]["status"], "fixed")
+
+    def test_mechanical_issue_routes_to_scoped_repair(self):
+        ro = load_mod("repair_orchestrator")
+        self.assertEqual(ro.classify({"msg":"机械问题：光杆说引导 6 次"}), "mechanical_candidate")
+
     def test_full_review_mixed_buffer_streak(self):
         fr = load_mod("full_review")
         with tempfile.TemporaryDirectory() as td:
