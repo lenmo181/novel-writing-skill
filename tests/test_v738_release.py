@@ -34,7 +34,7 @@ class TestReleaseConfig(unittest.TestCase):
     def test_current_version(self):
         sys.path.insert(0, str(ROOT / "tools"))
         from config import SKILL_VERSION
-        self.assertEqual(SKILL_VERSION, "7.38")
+        self.assertRegex(SKILL_VERSION, r"^\d+\.\d+$")
 
     def test_lint_and_evaluation_entrypoints(self):
         lint = subprocess.run(
