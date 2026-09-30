@@ -99,7 +99,7 @@ def prepare(root):
     target = root / PLAN
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    audit_log.append_event(root, "repair_plan_created", str(PLAN), "open", {"issue_count": len(issues)})
+    audit_log.append_event(root, "repair_plan_created", str(PLAN), "open", {"queue_issue_count": len(issues), "mechanical_candidate_count": len(mechanical), "plan_issue_count": len(issues_with_repairs)})
     return plan, target
 
 def load_plan(root):
