@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.34）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
+"""全文审稿流水线（v7.35）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
 职责单一（治理铁律）：**只诊断，不修改**——本工具永不改写正文/档案/大纲。
 产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
@@ -262,17 +262,22 @@ P_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 CAT_ORDER = {"设定": 0, "全书": 1, "跨章": 2, "单章": 3, "未知": 4}
 
 
+CONFIRMED_FIXED_STATUSES = {"fixed", "auto_fixed"}
+
+
 def issue_key(it):
     return (it["cat"], it["loc"], it["msg"])
 
 
 def build_queue(issues, round_no, prev_items=None):
-    """生成修复队列十字段；继承上轮同 key 的处理状态（fixed/wont_fix 保留）。"""
+    """生成修复队列十字段；沿用状态，但历史 fixed/auto_fixed 重新出现时自动 reopened。"""
     prev_status = {issue_key(p): p.get("status", "open") for p in (prev_items or [])}
     queue = []
     for i, it in enumerate(issues, 1):
         key = issue_key(it)
         status = prev_status.get(key, "open")
+        if status in CONFIRMED_FIXED_STATUSES:
+            status = "reopened"
         item = {"issue_id": f"FR-{round_no:02d}-{i:03d}", **it, "status": status}
         queue.append(item)
     return queue
@@ -281,14 +286,15 @@ def build_queue(issues, round_no, prev_items=None):
 def diff_rounds(prev_items, cur_queue, resolved_log=None):
     """二审对比：resolved/persisted/new/regressed 四分类。
 
-    回归判定依赖跨轮记忆：resolved_log 累积历轮已消失的问题位置（cat, loc），
-    本轮新增问题命中历史已修复位置 = 回归（防「修了又犯」被当新问题放过）。
+    “回归”只针对曾明确登记为 fixed/auto_fixed 的历史问题；
+    单纯因阈值、书格或检测条件变化而消失的问题，不进入回归记忆。
     """
     prev_keys = {issue_key(p) for p in prev_items}
     cur_keys = {issue_key(q) for q in cur_queue}
-    fixed_locs = {(p["cat"], p["loc"]) for p in prev_items if p.get("status") == "fixed"}
+    fixed_locs = {(p["cat"], p["loc"]) for p in prev_items if p.get("status") in CONFIRMED_FIXED_STATUSES}
     for rec in (resolved_log or []):
-        fixed_locs.add((rec.get("cat"), rec.get("loc")))
+        if rec.get("prev_status") in CONFIRMED_FIXED_STATUSES:
+            fixed_locs.add((rec.get("cat"), rec.get("loc")))
     resolved = [p for p in prev_items if issue_key(p) not in cur_keys]
     persisted = [q for q in cur_queue if issue_key(q) in prev_keys]
     new_items = [q for q in cur_queue if issue_key(q) not in prev_keys]
@@ -335,7 +341,8 @@ def run_review(root, strict=False, as_json=False):
     queue = build_queue(issues, round_no, prev_items)
     d = diff_rounds(prev_items, queue, resolved_log) if (prev_items or resolved_log) else None
     if d is not None:
-        resolved_log = resolved_log + d["resolved"][-200:]  # 累积已消失问题（截尾防无限增长）
+        confirmed_resolved = [r for r in d["resolved"] if r.get("prev_status") in CONFIRMED_FIXED_STATUSES]
+        resolved_log = resolved_log + confirmed_resolved[-200:]  # 仅保存明确修复项
 
     counts = {lv: sum(1 for q in queue if q["level"] == lv) for lv in ("P0", "P1", "P2", "P3")}
     queue_doc = {
@@ -355,7 +362,7 @@ def run_review(root, strict=False, as_json=False):
         f"- 版本：v{config.SKILL_VERSION}；项目：{root.name}；扫描章节：{len(chapters)}（至第{cur_max}章）；轮次：第 {round_no} 轮",
         f"- 结论：P0×{counts['P0']} P1×{counts['P1']} P2×{counts['P2']} P3×{counts['P3']}",
         "- 分级：P0 设定崩坏/顺序错误｜P1 影响追读｜P2 影响读感｜P3 整洁性；类别：设定/全书/跨章/单章",
-        "- 本工具只诊断不修复；修复按 mind/全文审稿队列.json 逐条执行（十字段：issue_id/level/category/chapter/problem/evidence/recommended_action/repair_scope/forbidden_action/status），修后重跑本工具出二审对比",
+        "- 本工具只诊断不修复；修复按 mind/全文审稿队列.json 逐条执行（十字段：issue_id/level/cat/loc/msg/evidence/recommended_action/repair_scope/forbidden_action/status），修后重跑本工具出二审对比",
         "",
         "| issue_id | 级别 | 类别 | 位置 | 问题 | 建议动作 | 修复范围 | 禁止动作 | 状态 |",
         "|---|------|------|------|------|---------|---------|---------|------|",
@@ -367,7 +374,7 @@ def run_review(root, strict=False, as_json=False):
             "",
             f"## 二审对比（第 {round_no - 1} 轮 → 第 {round_no} 轮）",
             "",
-            f"- 问题消失：{len(d['resolved'])} 项（其中登记已修复：{sum(1 for r in d['resolved'] if r['prev_status'] == 'fixed')}）",
+            f"- 问题消失：{len(d['resolved'])} 项（其中登记已修复：{sum(1 for r in d['resolved'] if r['prev_status'] in CONFIRMED_FIXED_STATUSES)}）",
             f"- 问题保留：{len(d['persisted'])} 项",
             f"- 新增问题：{len(d['new'])} 项",
             f"- 回归问题：{len(d['regressed'])} 项（上轮已修复位置再次出问题——优先回查修复方式）",
