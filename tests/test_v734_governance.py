@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v7.34 规则治理回归测试：以行为测试为主（config 传播/边界值/二审/题材反例），
+"""v7.35 规则治理回归测试：以行为测试为主（config 传播/边界值/二审/题材反例），
 替代 v733 的「源码含某数字」式文本断言。目标：减少误报，而不是堆测试数。"""
 import importlib.util
 import json
@@ -142,6 +142,11 @@ class TestFullReviewThresholds(unittest.TestCase):
             full_review.run_review(root)
             q1 = self._queue(root)
             self.assertTrue(any("已亡角色" in i["msg"] for i in q1["issues"]))
+            # 先明确登记为 fixed，再移除问题；否则“消失”不应进入回归记忆。
+            for item in q1["issues"]:
+                if "已亡角色" in item["msg"]:
+                    item["status"] = "fixed"
+            (root / "mind" / "全文审稿队列.json").write_text(json.dumps(q1, ensure_ascii=False, indent=1), encoding="utf-8")
             # 修复：第3章去掉老王
             (root / "书稿" / "第003章_章3.md").write_text("第3章 章3\n那人缓缓走来。" + "丙" * 1900, encoding="utf-8")
             full_review.run_review(root)
