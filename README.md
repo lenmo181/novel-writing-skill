@@ -241,7 +241,7 @@ python tools/full_review.py "<项目根>" --strict --json
 python tools/chapter_readiness.py "<项目根>" 42 --with-semantic --full --json
 ```
 
-语义记录：`mind/审校/第042章审校.json`，覆盖第14-30项，每项至少 `status + evidence`。
+语义记录：`mind/审校/第042章审校.json`，覆盖第14-30项，每项至少 `status + evidence`，并绑定当前正文 `chapter_sha256`；正文一旦变化，旧证据自动失效。
 
 ### 第八步：修复和二审
 
