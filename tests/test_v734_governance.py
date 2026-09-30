@@ -252,8 +252,8 @@ class TestTruthSourceUnity(unittest.TestCase):
 
     def test_manual_versions(self):
         manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
-        self.assertIn("| references/规则台账.md | v7.38 | 核心 |", manifest)
-        self.assertIn("| references/常量表.md | v7.38 | 核心 |", manifest)
+        self.assertIn(f"| references/规则台账.md | v{SKILL_VERSION} | 核心 |", manifest)
+        self.assertIn(f"| references/常量表.md | v{SKILL_VERSION} | 核心 |", manifest)
 
 
 class TestAntiGaming(unittest.TestCase):
