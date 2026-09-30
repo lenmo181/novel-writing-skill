@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿修复队列状态执行层（v7.38）。
+"""全文审稿修复队列状态执行层（v7.39）。
 
 只管理 mind/全文审稿队列.json 的状态，不直接修改正文、档案或大纲。
 状态：open / reopened / fixed / auto_fixed / wont_fix。
@@ -7,6 +7,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,13 +20,25 @@ QUEUE_NAME = "mind/全文审稿队列.json"
 REQUIRED_ISSUE_FIELDS = {"issue_id", "level", "cat", "loc", "msg", "evidence", "recommended_action", "repair_scope", "forbidden_action", "status"}
 
 
+def compatible_queue_version(value):
+    if value in {None, config.SKILL_VERSION}:
+        return True
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(value))
+    if not match:
+        return False
+    major, minor = int(match.group(1)), int(match.group(2))
+    current_major, current_minor = map(int, config.SKILL_VERSION.split(".")[:2])
+    return major == current_major and 35 <= minor <= current_minor
+
+
 def load_queue(root: Path):
     path = root / QUEUE_NAME
     if not path.is_file():
         raise FileNotFoundError(f"队列不存在：{path}")
     doc = json.loads(path.read_text(encoding="utf-8"))
-    if doc.get("version") not in {None, config.SKILL_VERSION}:
-        raise ValueError(f"队列版本 {doc.get('version')} 与当前技能 {config.SKILL_VERSION} 不一致")
+    version = doc.get("version")
+    if not compatible_queue_version(version):
+        raise ValueError(f"队列版本 {version} 与当前技能 {config.SKILL_VERSION} 不兼容")
     for idx, issue in enumerate(doc.get("issues") or [], 1):
         missing = REQUIRED_ISSUE_FIELDS - set(issue)
         if missing:
@@ -85,7 +98,12 @@ def set_status(root: Path, issue_id: str, target: str):
         print(f"[✗] 不允许状态迁移：{current} → {target}")
         return 1
     issue["status"] = target
-    doc.setdefault("meta", {})["last_status_change_utc"] = datetime.now(timezone.utc).isoformat()
+    meta = doc.setdefault("meta", {})
+    old_version = doc.get("version")
+    if old_version != config.SKILL_VERSION:
+        meta["migrated_from_version"] = old_version
+        doc["version"] = config.SKILL_VERSION
+    meta["last_status_change_utc"] = datetime.now(timezone.utc).isoformat()
     save_queue(path, doc)
     print(f"[✓] {issue_id}: {current} → {target}")
     return 0

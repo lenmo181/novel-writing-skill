@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""全文修复编排器（v7.37）。
+"""全文修复编排器（v7.39）。
 
-职责：快照 -> 读取 full_review 队列 -> 生成 AI/机械修复任务包 -> 可选执行已有机械修复器 -> 复检。
-默认只生成任务包，不改正文。任何写操作都需要显式 --apply-mechanical，并先创建包含书稿的快照。
+默认路径：读取诊断队列 → 生成任务包；任何正文写入都必须显式 --apply。
+机械修复只允许处理任务包中明确命中的章节，不再对整个书稿横扫。
+流程：prepare →（显式授权）apply-mechanical → verify。
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -16,69 +19,193 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import SKILL_VERSION
 import snapshot_project
 import audit_log
+import fix_said_tags
+from canonical_parser import chapter_files
 
-QUEUE=Path("mind")/"全文审稿队列.json"
-PLAN=Path("mind")/"全文修复任务包.json"
+QUEUE = Path("mind") / "全文审稿队列.json"
+PLAN = Path("mind") / "全文修复任务包.json"
+MECHANICAL_HINTS = ("他说：", "她说：", "光杆说", "说道", "机械问题", "文字墙", "元信息残留", "格式残留")
 
-MECHANICAL_HINTS=("他说：", "她说：", "说道", "文字墙", "元信息残留", "格式残留")
+def queue_sha256(root):
+    path = root / QUEUE
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def load_queue(root):
-    path=root/QUEUE
-    if not path.is_file(): raise FileNotFoundError(f"不存在全文审稿队列：{path}")
+    path = root / QUEUE
+    if not path.is_file():
+        raise FileNotFoundError(f"不存在全文审稿队列：{path}")
     return json.loads(path.read_text(encoding="utf-8"))
 
 def classify(issue):
-    msg=issue.get("msg","")
-    mechanical=any(token in msg for token in MECHANICAL_HINTS)
-    return "mechanical_candidate" if mechanical else "ai_assisted"
+    msg = issue.get("msg", "")
+    return "mechanical_candidate" if any(token in msg for token in MECHANICAL_HINTS) else "ai_assisted"
+
+def discover_mechanical_candidates(root, round_no):
+    """使用机械修复器 dry-run 探测可安全处理的章节；只写入任务包，不修改正文。"""
+    candidates = []
+    for number, path in chapter_files(root):
+        try:
+            result = fix_said_tags.process(str(path), True, None, True, True)
+        except (OSError, UnicodeDecodeError):
+            continue
+        changed = bool(result[6])
+        if not changed:
+            continue
+        tags_same, suffix, drop, beats, meta, walls = result[:6]
+        details = []
+        if tags_same or suffix or drop or beats:
+            details.append(f"说类引导={tags_same + suffix + drop + beats}")
+        if meta:
+            details.append(f"元信息={meta}")
+        if walls:
+            details.append(f"文字墙={walls}")
+        candidates.append({
+            "issue_id": f"MECH-{round_no:02d}-{number:03d}",
+            "level": "P2",
+            "cat": "单章",
+            "loc": f"第{number}章",
+            "msg": "机械修复候选：" + "；".join(details),
+            "evidence": f"fix_said_tags dry-run：{path.name}",
+            "recommended_action": "fix_said_tags.py --files --walls --meta",
+            "repair_scope": str(path.relative_to(root)),
+            "forbidden_action": "禁止整章重写；先快照后最小范围修复",
+            "status": "open",
+            "repair_mode": "mechanical_candidate",
+            "verification": ["chapter_diff.py", "check_chapter.py", "full_review.py"]
+        })
+    return candidates
 
 def prepare(root):
-    queue=load_queue(root)
-    issues=queue.get("issues") or []
-    plan={"version":SKILL_VERSION,"generated_at":datetime.now().astimezone().isoformat(timespec="seconds"),"round":queue.get("round"),"project":str(root),"snapshot_required":True,"issues":[{**issue,"repair_mode":classify(issue),"verification":["check_chapter.py","chapter_diff.py","continuity_check.py","full_review.py"]} for issue in issues]}
-    target=root/PLAN; target.parent.mkdir(parents=True,exist_ok=True); target.write_text(json.dumps(plan,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
-    audit_log.append_event(root,"repair_plan_created",str(PLAN),"open",{"issue_count":len(issues)})
-    return plan,target
+    queue = load_queue(root)
+    issues = queue.get("issues") or []
+    round_no = int(queue.get("round") or 1)
+    mechanical = discover_mechanical_candidates(root, round_no)
+    existing_locs = {str(item.get("loc", "")) for item in issues}
+    issues_with_repairs = issues + [item for item in mechanical if item["loc"] not in existing_locs]
+    plan = {
+        "version": SKILL_VERSION,
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "round": round_no,
+        "project": str(root),
+        "snapshot_required": True,
+        "write_authorization_required": True,
+        "queue_sha256": queue_sha256(root),
+        "issues": [
+            {**issue, "repair_mode": issue.get("repair_mode") or classify(issue),
+             "verification": ["check_chapter.py", "chapter_diff.py", "continuity_check.py", "full_review.py"]}
+            for issue in issues_with_repairs
+        ],
+    }
+    target = root / PLAN
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    audit_log.append_event(root, "repair_plan_created", str(PLAN), "open", {"queue_issue_count": len(issues), "mechanical_candidate_count": len(mechanical), "plan_issue_count": len(issues_with_repairs)})
+    return plan, target
 
-def run_cmd(command,root):
+def load_plan(root):
+    path = root / PLAN
+    if not path.is_file():
+        raise FileNotFoundError(f"不存在修复任务包：{path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+def resolve_targets(root):
+    """只解析任务包中机械候选项明确指出的章节；无明确章节则不自动写。"""
+    plan = load_plan(root)
+    expected = plan.get("queue_sha256")
+    if expected and expected != queue_sha256(root):
+        raise ValueError("修复队列已变化：当前队列与 prepare 时不一致，拒绝直接写入；请重新 prepare")
+    targets = []
+    seen = set()
+    for issue in plan.get("issues", []):
+        if issue.get("repair_mode") != "mechanical_candidate":
+            continue
+        if issue.get("status", "open") not in {"open", "reopened"}:
+            continue
+        loc = str(issue.get("loc", ""))
+        chapter_nums = {int(x) for x in re.findall(r"第\s*(\d{1,6})\s*章", loc)}
+        for number in sorted(chapter_nums):
+            matches = sorted((root / "书稿").glob(f"第{number:03d}章*"))
+            matches += sorted((root / "书稿").glob(f"第{number}章*"))
+            for path in matches:
+                if path.is_file():
+                    path = path.resolve()
+                    if path not in seen:
+                        seen.add(path)
+                        targets.append(path)
+                    break
+    return targets
+
+def run_cmd(command, root):
     try:
-        p=subprocess.run(command,cwd=str(root),capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=600)
-        return {"ok":p.returncode==0,"exit_code":p.returncode,"tail":(p.stdout+"\n"+p.stderr).strip().splitlines()[-8:]}
-    except (OSError,subprocess.TimeoutExpired) as exc:
-        return {"ok":False,"exit_code":2,"tail":[str(exc)]}
+        p = subprocess.run(command, cwd=str(root), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+        return {"ok": p.returncode == 0, "exit_code": p.returncode,
+                "tail": (p.stdout + "\n" + p.stderr).strip().splitlines()[-8:]}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "exit_code": 2, "tail": [str(exc)]}
 
-def apply_mechanical(root):
-    snap,_=snapshot_project.create_snapshot(root,"pre-repair-mechanical",include_chapters=True)
-    result=run_cmd([sys.executable,str(Path(__file__).resolve().parent/"fix_said_tags.py"),str(root/"书稿"),"--walls","--meta"],root)
-    audit_log.append_event(root,"mechanical_repair",str(root/"书稿"),"auto_fixed" if result["ok"] else "open",{"snapshot":str(snap),"exit_code":result["exit_code"]})
-    return {"snapshot":str(snap),"repair":result}
+def apply_mechanical(root, files):
+    if not files:
+        return {"snapshot": None, "files": [], "repair": {"ok": True, "exit_code": 0, "tail": ["没有可安全自动修复的机械候选项，未修改正文"]}}
+    snap, _ = snapshot_project.create_snapshot(root, "pre-repair-mechanical", include_chapters=True)
+    command = [sys.executable, str(Path(__file__).resolve().parent / "fix_said_tags.py"), "--files", *map(str, files), "--walls", "--meta"]
+    result = run_cmd(command, root)
+    # 进程 exit=0 只代表修复器执行完，不代表病灶已经消失。
+    # “auto_fixed” 只在后续 verify 成功后由 cycle 单独登记。
+    audit_log.append_event(root, "mechanical_repair", str(root / "书稿"), "applied",
+                           {"snapshot": str(snap), "exit_code": result["exit_code"],
+                            "files": [str(p.relative_to(root)) for p in files]})
+    return {"snapshot": str(snap), "files": [str(p) for p in files], "repair": result}
 
-def verify(root,full=False):
-    command=[sys.executable,str(Path(__file__).resolve().parent/"full_review.py"),str(root),"--json"]
-    if full: command.insert(-1,"--strict")
-    result=run_cmd(command,root)
-    audit_log.append_event(root,"repair_verification",str(QUEUE),"verified" if result["ok"] else "needs_review",{"exit_code":result["exit_code"]})
+def verify(root, full=False):
+    command = [sys.executable, str(Path(__file__).resolve().parent / "full_review.py"), str(root), "--json"]
+    if full:
+        command.insert(-1, "--strict")
+    result = run_cmd(command, root)
+    audit_log.append_event(root, "repair_verification", str(QUEUE), "verified" if result["ok"] else "needs_review",
+                           {"exit_code": result["exit_code"]})
     return result
 
 def main(argv=None):
-    ap=argparse.ArgumentParser(description=f"全文修复编排器 v{SKILL_VERSION}")
+    ap = argparse.ArgumentParser(description=f"全文修复编排器 v{SKILL_VERSION}")
     ap.add_argument("project")
-    ap.add_argument("command",choices=("prepare","apply-mechanical","verify","cycle"))
-    ap.add_argument("--full",action="store_true",help="verify 时启用 full_review strict")
-    ap.add_argument("--json",action="store_true")
-    args=ap.parse_args(argv)
-    root=Path(args.project).expanduser().resolve()
-    if not root.is_dir(): print("[✗] 项目目录不存在"); return 2
+    ap.add_argument("command", choices=("prepare", "apply-mechanical", "verify", "cycle"))
+    ap.add_argument("--full", action="store_true", help="verify 时启用 full_review strict")
+    ap.add_argument("--apply", action="store_true", help="显式授权正文机械写入；没有此参数绝不修改正文")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args(argv)
+    root = Path(args.project).expanduser().resolve()
+    if not root.is_dir():
+        print("[✗] 项目目录不存在")
+        return 2
     try:
-        if args.command=="prepare":
-            plan,path=prepare(root); result={"ok":True,"plan":str(path),"issue_count":len(plan["issues"])}
-        elif args.command=="apply-mechanical": result=apply_mechanical(root)
-        elif args.command=="verify": result=verify(root,args.full)
+        if args.command == "prepare":
+            plan, path = prepare(root)
+            result = {"ok": True, "plan": str(path), "issue_count": len(plan["issues"]), "write_skipped": True}
+        elif args.command == "apply-mechanical":
+            if not args.apply:
+                print("[✗] apply-mechanical 默认只读；要修改正文必须显式提供 --apply")
+                return 2
+            files = resolve_targets(root)
+            result = apply_mechanical(root, files)
+        elif args.command == "verify":
+            result = verify(root, args.full)
         else:
-            plan,path=prepare(root); applied=apply_mechanical(root); checked=verify(root,args.full); result={"plan":str(path),"apply":applied,"verify":checked,"ok":bool(checked["ok"])}
-    except (OSError,ValueError,json.JSONDecodeError) as exc:
-        print(f"[✗] 修复编排失败：{exc}"); return 2
-    print(json.dumps(result,ensure_ascii=False,indent=2) if args.json else json.dumps(result,ensure_ascii=False,indent=2))
+            plan, path = prepare(root)
+            if not args.apply:
+                result = {"ok": True, "plan": str(path), "write_skipped": True, "reason": "missing --apply"}
+            else:
+                files = resolve_targets(root)
+                applied = apply_mechanical(root, files)
+                checked = verify(root, args.full)
+                verified_status = "auto_fixed" if checked["ok"] else "open"
+                audit_log.append_event(root, "mechanical_repair_verified", str(QUEUE), verified_status,
+                                       {"exit_code": checked["exit_code"], "snapshot": applied.get("snapshot")})
+                result = {"plan": str(path), "apply": applied, "verify": checked, "ok": bool(checked["ok"])}
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[✗] 修复编排失败：{exc}")
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") else 1
 
-if __name__=="__main__": raise SystemExit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())

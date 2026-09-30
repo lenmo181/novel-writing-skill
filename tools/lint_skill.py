@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.38）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.39）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -149,7 +149,19 @@ def main() -> int:
         fail(errors, "mochi_check.py 仍直接硬编码阈值默认值")
 
 
-    # ── v7.38 规则治理六检 ──
+    # ── v7.39 安全/语义 Gate 治理检 ──
+    for rel in ("tools/canonical_parser.py", "schemas/chapter_semantic_review.schema.json"):
+        if not (ROOT / rel).is_file():
+            fail(errors, f"v7.39 运行时构件缺失：{rel}")
+    orch = read("tools/repair_orchestrator.py")
+    if "--apply" not in orch:
+        fail(errors, "repair_orchestrator.py 缺少显式 --apply 写入授权")
+    if "--files" not in read("tools/fix_said_tags.py"):
+        fail(errors, "fix_said_tags.py 缺少 --files 最小修复范围入口")
+    readiness = read("tools/chapter_readiness.py")
+    if "--with-semantic" not in readiness or "第14-30项" not in readiness:
+        fail(errors, "chapter_readiness.py 未提供第14-30项语义证据 Gate")
+    # ── v7.39 规则治理六检（承接 v7.38） ──
     # 1) 规则台账完整性：RB 行数、字段对齐、状态枚举、执行工具/对应测试列必须有内容
     ledger = read("references/规则台账.md")
     rb_rows = [m.group(0) for m in re.finditer(r"^\| RB-\d{3} \|.*$", ledger, re.M)]

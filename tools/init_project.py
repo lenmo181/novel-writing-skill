@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""创建可直接续写的网络小说项目骨架（v7.34）。
+"""创建可直接续写的网络小说项目骨架（v7.39）。
 
 只创建缺失文件，默认不覆盖已有内容；适合新书初始化，也适合给空目录补齐
 标准档案。模板使用 UTF-8 和标准库，生成后可立即交给 project_audit 检查。
@@ -110,6 +110,7 @@ def init_project(target: Path, title: str, genre: str = "待补充", platform: s
     skipped: list[str] = []
     if not dry_run:
         target.mkdir(parents=True, exist_ok=True)
+        (target / "mind" / "审校").mkdir(parents=True, exist_ok=True)
     for rel, content in files.items():
         path = target / rel
         if path.exists():

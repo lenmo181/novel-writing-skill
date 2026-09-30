@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.38）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
+"""全文审稿流水线（v7.39）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
 职责单一（治理铁律）：**只诊断，不修改**——本工具永不改写正文/档案/大纲。
 产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
@@ -26,8 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402  阈值延迟绑定（测试可运行时修改 config 验证传播）
+from canonical_parser import parse_role_snapshot
 
-DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|去世|离世)")
+DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|已亡|去世|离世)")
 CH_NUM_RE = re.compile(r"第(\d{1,5})[章回节]")
 RHYTHM_TYPE_RE = re.compile(r"(主线|峰值|缓冲-对话|缓冲-线索|缓冲-代价|校准)")
 
@@ -125,35 +126,29 @@ class Review:
     def scan_archive(self, chapters, cur_max):
         snap = self.root / "mind" / "角色状态快照.md"
         if snap.is_file():
-            text, _ = read_text(snap)
-            if text:
-                for line in text.splitlines():
-                    if "|" not in line:
+            roles = parse_role_snapshot(snap)
+            for name, fields in sorted(roles.items()):
+                status = fields.get("状态", "") + fields.get("伤势", "")
+                if not DEAD_MARK_RE.search(status):
+                    continue
+                last_m = re.search(r"第\s*(\d{1,6})\s*章", fields.get("最后出场", ""))
+                last_ch = int(last_m.group(1)) if last_m else None
+                aliases = [x.strip() for x in re.split(r"[、，,/;；]", fields.get("别名", "")) if x.strip() and x.strip() not in {"无", "暂无", "-"}]
+                terms = [name] + aliases
+                resurf = []
+                for n, p in chapters:
+                    if last_ch is not None and n <= last_ch:
                         continue
-                    cells = [c.strip() for c in line.strip("|").split("|")]
-                    row = "|".join(cells)
-                    if not DEAD_MARK_RE.search(row):
-                        continue
-                    name = next((c for c in cells if 1 < len(c) <= 12 and not DEAD_MARK_RE.search(c)
-                                 and not re.search(r"\d{2,}", c)), None)
-                    if not name:
-                        continue
-                    last_m = re.search(r"(\d{1,5})", row)
-                    last_ch = int(last_m.group(1)) if last_m else None
-                    resurf = []
-                    for n, p in chapters:
-                        if last_ch and n <= last_ch:
-                            continue
-                        body = chapter_body(p)
-                        if body and name in body:
-                            resurf.append(n)
-                            if len(resurf) >= 3:
-                                break
-                    if resurf:
-                        lvl = "P0" if not last_ch else ("P0" if len(resurf) >= 2 else "P1")
-                        self.add(lvl, "设定", f"{name}（快照标记已故）",
-                                 f"已亡角色在第{','.join(map(str, resurf))}章再次出现姓名",
-                                 f"快照行含死亡标记；正文命中章节：{resurf}")
+                    body = chapter_body(p)
+                    if body and any(term in body for term in terms if term):
+                        resurf.append(n)
+                        if len(resurf) >= 3:
+                            break
+                if resurf:
+                    level = "P0" if (last_ch is None or len(resurf) >= 2) else "P1"
+                    self.add(level, "设定", f"{name}（快照标记已故）",
+                             f"已亡角色在第{chr(44).join(map(str, resurf))}章再次出现姓名/别名",
+                             "快照：状态=" + fields.get("状态", "") + "；最后出场=" + fields.get("最后出场", "未填写") + "；正文命中章节：" + str(resurf))
         foreshadow = self.root / "mind" / "伏笔追踪表.md"
         if foreshadow.is_file() and cur_max:
             text, _ = read_text(foreshadow)
@@ -215,6 +210,8 @@ class Review:
             if s["dpct"] > config.FULL_REVIEW_DIALOG_MAX:
                 self.add("P2", "单章", f"第{s['n']}章", f"对话占比 {s['dpct']}% (>{config.FULL_REVIEW_DIALOG_MAX}%)",
                          f"span {s['dpct']}%")
+
+
         return stats
 
     # ── 阶段1d：节奏连续（读章节目录节奏类型列）──
@@ -229,34 +226,55 @@ class Review:
         for line in text.splitlines():
             if "|" not in line:
                 continue
+            cells = [c.strip() for c in line.strip().split("|") if c.strip()]
             m_num = CH_NUM_RE.search(line)
-            m_typ = RHYTHM_TYPE_RE.search(line)
-            if m_num and m_typ:
-                seq.append((int(m_num.group(1)), m_typ.group(1)))
-        seq.sort()
-        run = []
-        for n, t in seq:
-            if run and run[-1][1] == t:
-                run.append((n, t))
+            if not m_num and cells and cells[0].isdigit():
+                m_num_value = int(cells[0])
             else:
-                self._rhythm_flush(run)
-                run = [(n, t)]
-        self._rhythm_flush(run)
+                m_num_value = int(m_num.group(1)) if m_num else None
+            m_typ = RHYTHM_TYPE_RE.search(line)
+            if m_num_value is not None and m_typ:
+                seq.append((m_num_value, m_typ.group(1)))
+        seq.sort()
+        if not seq:
+            return
 
-    def _rhythm_flush(self, run):
-        if len(run) < config.FULL_REVIEW_RHYTHM_SAME_STREAK:
+        same_run = []
+        buffer_run = []
+        for n, t in seq:
+            if same_run and (n != same_run[-1][0] + 1 or t != same_run[-1][1]):
+                self._same_rhythm_flush(same_run)
+                same_run = []
+            same_run.append((n, t))
+
+            if t.startswith("缓冲"):
+                if buffer_run and n != buffer_run[-1][0] + 1:
+                    self._buffer_flush(buffer_run)
+                    buffer_run = []
+                buffer_run.append((n, t))
+            else:
+                self._buffer_flush(buffer_run)
+                buffer_run = []
+        self._same_rhythm_flush(same_run)
+        self._buffer_flush(buffer_run)
+
+    def _same_rhythm_flush(self, run):
+        if len(run) < config.FULL_REVIEW_RHYTHM_SAME_STREAK or run[0][1].startswith("缓冲"):
             return
         t = run[0][1]
         n0, n1 = run[0][0], run[-1][0]
-        if t.startswith("缓冲") and len(run) >= config.FULL_REVIEW_RHYTHM_BUFFER_STREAK:
-            self.add("P1", "跨章", f"第{n0}-{n1}章",
-                     f"缓冲型节奏连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_BUFFER_STREAK}）",
-                     f"章节目录节奏列：{t}×{len(run)}")
-        elif not t.startswith("缓冲"):
-            self.add("P1", "跨章", f"第{n0}-{n1}章",
-                     f"节奏类型「{t}」连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_SAME_STREAK}）",
-                     f"章节目录节奏列：{t}×{len(run)}")
+        self.add("P1", "跨章", f"第{n0}-{n1}章",
+                 f"节奏类型「{t}」连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_SAME_STREAK}）",
+                 f"章节目录节奏列：{t}×{len(run)}")
 
+    def _buffer_flush(self, run):
+        if len(run) < config.FULL_REVIEW_RHYTHM_BUFFER_STREAK:
+            return
+        n0, n1 = run[0][0], run[-1][0]
+        kinds = "、".join(t for _, t in run)
+        self.add("P1", "跨章", f"第{n0}-{n1}章",
+                 f"缓冲型节奏合计连续 {len(run)} 章（≥{config.FULL_REVIEW_RHYTHM_BUFFER_STREAK}）",
+                 f"章节目录节奏列：{kinds}")
 
 P_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 CAT_ORDER = {"设定": 0, "全书": 1, "跨章": 2, "单章": 3, "未知": 4}

@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(TOOLS))
 
 import config  # noqa: E402
+from config import SKILL_VERSION
 full_review = importlib.import_module("full_review") if "full_review" in sys.modules else None
 if full_review is None:
     spec = importlib.util.spec_from_file_location("full_review", TOOLS / "full_review.py")
@@ -252,8 +253,8 @@ class TestTruthSourceUnity(unittest.TestCase):
 
     def test_manual_versions(self):
         manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
-        self.assertIn("| references/规则台账.md | v7.38 | 核心 |", manifest)
-        self.assertIn("| references/常量表.md | v7.38 | 核心 |", manifest)
+        self.assertIn(f"| references/规则台账.md | v{SKILL_VERSION} | 核心 |", manifest)
+        self.assertIn(f"| references/常量表.md | v{SKILL_VERSION} | 核心 |", manifest)
 
 
 class TestAntiGaming(unittest.TestCase):

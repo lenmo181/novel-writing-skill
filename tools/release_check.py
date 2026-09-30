@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""发布前只读预检（v7.38）。
+"""发布前只读预检（v7.39）。
 
 运行技能自检、评测矩阵、lint、引用检查和可选回归测试；
 可额外比对本地安装副本。不会上传 SkillHub，也不会替换任何文件。
@@ -19,38 +19,9 @@ from config import SKILL_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPARE_FILES = (
-    "SKILL.md",
-    "README.md",
-    "tools/config.py",
-    "tools/doctor.py",
-    "tools/eval_skill.py",
-    "tools/init_project.py",
-    "tools/entity_index.py",
-    "tools/project_health.py",
-    "tools/full_review.py",
-    "tools/chapter_readiness.py",
-    "tools/repair_orchestrator.py",
-    "tools/audit_log.py",
-    "tools/memory_search.py",
-    "references/快速开始.md",
-    "references/工具选择.md",
-    "references/研究来源.md",
-    "references/常见问题.md",
-    "references/模式操作卡.md",
-    "references/规则台账.md",
-    "references/核心校验映射.md",
-    "references/版本台账.md",
-    "references/工程化能力矩阵.md",
-    "references/评测场景.md",
-    "references/评测量表.md",
-    "references/回执协议.md",
-    "references/开源融合.md",
-    "SECURITY.md",
-    "schemas/full_review_queue.schema.json",
-    "schemas/project_metadata.schema.json",
-    "schemas/chapter_readiness.schema.json",
-)
+COMPARE_FILES = ("references/评测场景.md", "references/评测量表.md", "references/工具选择.md")  # legacy compatibility alias
+RUNTIME_DIRS = ("tools", "references", "schemas", "templates")
+RUNTIME_ROOT_FILES = ("SKILL.md", "README.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md")
 
 
 def sha256(path: Path) -> str:
@@ -87,11 +58,17 @@ def compare_installed(root: Path, installed: Path) -> dict:
     missing = []
     source_missing = []
     different = []
-    for rel in COMPARE_FILES:
+    rels = []
+    for rel_root in RUNTIME_DIRS:
+        base = root / rel_root
+        if base.is_dir():
+            rels.extend(str(p.relative_to(root)).replace("\\", "/") for p in base.rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    rels.extend(RUNTIME_ROOT_FILES)
+    for rel in sorted(set(rels)):
         source = root / rel
         target = installed / rel
         if not source.is_file():
-            source_missing.append(rel)  # 源侧缺失：发布前必须暴露（此前静默判一致）
+            source_missing.append(rel)
         elif not target.is_file():
             missing.append(rel)
         elif sha256(source) != sha256(target):
@@ -99,15 +76,15 @@ def compare_installed(root: Path, installed: Path) -> dict:
     ok = not missing and not different and not source_missing
     parts = []
     if source_missing:
-        parts.append(f"工作区缺失 {len(source_missing)} 个比对文件")
+        parts.append(f"工作区缺失 {len(source_missing)} 个运行时文件")
     if missing:
-        parts.append(f"安装副本缺失 {len(missing)} 个文件")
+        parts.append(f"安装副本缺失 {len(missing)} 个运行时文件")
     if different:
-        parts.append(f"{len(different)} 个文件内容不同")
-    detail = "本地安装副本与工作区一致" if ok else "；".join(parts)
+        parts.append(f"{len(different)} 个运行时文件内容不同")
+    detail = "本地安装副本与工作区 runtime 一致" if ok else "；".join(parts)
     return {"name": "安装副本比对", "ok": ok, "exit_code": 0 if ok else 1,
-            "detail": detail, "missing": missing, "different": different,
-            "source_missing": source_missing}
+            "detail": detail, "files_compared": len(set(rels)), "missing": missing,
+            "different": different, "source_missing": source_missing}
 
 
 def audit(root: Path = ROOT, installed: Optional[Path] = None, include_tests: bool = False) -> dict:

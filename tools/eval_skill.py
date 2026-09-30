@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""评测场景矩阵校验器（v7.34）。
+"""评测场景矩阵校验器（v7.39）。
 
 只校验本地评测矩阵是否完整、可解析、与主技能入口一致；
 它不伪造 SkillHub 分数，也不替代真实模型行为评测。
@@ -81,6 +81,11 @@ def audit(root: Path = ROOT) -> dict:
         if phrase not in text:
             errors.append(f"评测标准缺少：{phrase}")
     skill_text = (root / "SKILL.md").read_text(encoding="utf-8") if (root / "SKILL.md").is_file() else ""
+    for row in rows:
+        if row["route"] not in skill_text:
+            warnings.append(f"{row['id']} 的预期主路由未在 SKILL.md 直接出现：{row['route']}")
+        if not any(token in row["boundary"] for token in ("不得", "不能", "禁止", "停", "授权", "确认", "只读")):
+            errors.append(f"{row['id']} 缺少明确停靠/权限约束")
     if "评测场景.md" not in skill_text:
         errors.append("SKILL.md 未接入评测场景矩阵")
     if f"v{SKILL_VERSION}" not in text:

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.30，弯引号流专用）
+fix_said_tags.py — 「他/她说：」类光杆引导批量修复工具（v7.39，弯引号流专用）
 用法:
-  python fix_said_tags.py <书稿目录> [--dry-run] [--no-backup] [--walls] [--meta]
+  python fix_said_tags.py [书稿目录] [--files 章节1 章节2 ...] [--dry-run] [--no-backup] [--walls] [--meta]
   --dry-run   只统计与抽样展示，不写文件
   --no-backup 跳过备份（默认备份到 <目录>/../mind/大修备份/修复原稿/）
   --walls     同时把>140字的无引号长段在句界拆分（文字墙硬卡）
@@ -194,17 +194,23 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
 
 def main():
     ap = argparse.ArgumentParser(description="「他/她说」光杆引导批量修复（弯引号流专用）")
-    ap.add_argument("dir")
+    ap.add_argument("dir", nargs="?", help="书稿目录")
+    ap.add_argument("--files", nargs="+", default=[], help="只处理明确指定的章节文件，适合修复队列最小范围执行")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-backup", action="store_true")
     ap.add_argument("--walls", action="store_true")
     ap.add_argument("--no-tags", action="store_true", dest="no_tags", help="无引号对白流专用：跳过一切说类标签修复（其「他说」为风格合法标记）")
     ap.add_argument("--meta", action="store_true")
     a = ap.parse_args()
-    files = sorted(glob.glob(os.path.join(a.dir, "*.md")))
+    if not a.dir and not a.files:
+        ap.error("必须提供书稿目录或 --files")
+    if a.dir and a.files:
+        ap.error("书稿目录与 --files 不能同时使用")
+    files = sorted({os.path.abspath(p) for p in (a.files if a.files else glob.glob(os.path.join(a.dir, "*.md")))})
     backup_dir = None
-    if not a.no_backup and not a.dry_run:
-        backup_dir = os.path.normpath(os.path.join(a.dir, "..", "mind", "大修备份", "修复原稿"))
+    if not a.no_backup and not a.dry_run and files:
+        base_dir = os.path.dirname(files[0])
+        backup_dir = os.path.normpath(os.path.join(base_dir, "..", "mind", "大修备份", "修复原稿"))
     t_same = t_suf = t_drop = t_beat = t_meta = t_wall = n_chg = 0
     for f in files:
         r = process(f, a.dry_run, backup_dir, a.walls, a.meta, skip_tags=a.no_tags)
