@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lenmo181/novel-writing-skill/schema/chapter_readiness.schema.json",
+  "title": "章节交付 Gate",
+  "type": "object",
+  "required": ["version", "project", "chapter", "gates", "ok"],
+  "properties": {
+    "version": {"type": "string"},
+    "project": {"type": "string"},
+    "chapter": {"type": "integer", "minimum": 1},
+    "gates": {"type": "array"},
+    "ok": {"type": "boolean"},
+    "generated_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}
