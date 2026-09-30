@@ -95,7 +95,8 @@ def main() -> int:
                  "tools/project_audit.py", "tools/continuity_check.py", "tools/context_pack.py",
                  "tools/chapter_diff.py", "tools/snapshot_project.py", "tools/update_skill.py",
                  "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py",
-                 "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py"]:
+                 "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py",
+                 "tools/full_review.py"]:
         text = read(path)
         if f"v{SKILL_VERSION}" not in text[:1200]:
             fail(errors, f"{path} 头部未标注技能版本 v{SKILL_VERSION}")
@@ -115,6 +116,7 @@ def main() -> int:
         "references/回执协议.md": read("references/回执协议.md"),
         "references/常见问题.md": read("references/常见问题.md"),
         "templates/项目模板.md": read("templates/项目模板.md"),
+        "references/规则台账.md": read("references/规则台账.md"),
     }
     for path, text in active_docs.items():
         if ".zcode" in text or "C:\\Users\\lenmo" in text:

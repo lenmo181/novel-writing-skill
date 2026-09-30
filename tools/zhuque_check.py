@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-zhuque_check.py — 网络小说创作技能 v7.32 朱雀AI文本线上检测
+zhuque_check.py — 网络小说创作技能 v7.33 朱雀AI文本线上检测
 API: 腾讯云 EdgeOne Makers 内置模型 @makers/zhuque-text（仅文本，图片暂不支持）
      POST https://ai-gateway.edgeone.link/v1/providers/zhuque-text/classify
 单章: python zhuque_check.py <章节文件.md|txt> [--threshold 90] [--warn 80]

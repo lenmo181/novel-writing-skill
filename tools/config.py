@@ -8,9 +8,9 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.32"
+SKILL_VERSION = "7.33"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
-RELEASE_DATE = "2026-09-29"
+RELEASE_DATE = "2026-09-30"
 
 SKILLHUB_SLUG = "@user_cd8383ec/web-novel-writing"
 SKILLHUB_DOWNLOAD_URL = (

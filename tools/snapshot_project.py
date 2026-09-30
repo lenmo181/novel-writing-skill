@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""小说项目安全快照工具（v7.32）。"""
+"""小说项目安全快照工具（v7.33）。"""
 import argparse
 import hashlib
 import json

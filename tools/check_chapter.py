@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-check_chapter.py — 网络小说创作技能 v7.32 章节机械校验脚本
+check_chapter.py — 网络小说创作技能 v7.33 章节机械校验脚本
 用法: python check_chapter.py <章节文件.md|txt> [--min 2000] [--max 2500]
                              [--quote chal|straight|any] [--dialog-min 15] [--dialog-max 50]
 只做机器可判定校验（30项中的脚本13项），语义类校验由 AI 对照 mind/ 档案执行。
@@ -224,7 +224,12 @@ def count_chars(s):
 
 
 def ai_lite_score(body, lines):
-    """返回零依赖启发式 AI 味粗测分数（0-10，越高越需要人工过目）。"""
+    """返回零依赖启发式 AI 味粗测分数（0-10，越高越需要人工过目）。
+
+    维度映射（v7.33 对齐《去AI味》AI味八维）：
+      节奏AI味：句长/段长波动低；语言AI味：比喻词密度；情绪AI味：情绪词密度；
+      结构AI味：章内 5-gram 自重复率高；解释AI味：平均每段句数过多。
+    """
     import statistics
 
     total = count_chars(body)
@@ -238,6 +243,10 @@ def ai_lite_score(body, lines):
     simile_d = simile / total * 1000 if total else 0
     emo_d = emo / total * 1000 if total else 0
     avg_sents_per_para = len(sents) / len(lines) if lines else 0
+    clean = re.sub(r"\s+", "", body)
+    grams5 = [clean[i:i + 5] for i in range(len(clean) - 4)]
+    dup5 = len(grams5) - len(set(grams5))
+    dup5_pct = dup5 * 100 / len(grams5) if grams5 else 0
     score = 0
     reasons = []
     if sent_sd < 8:
@@ -250,6 +259,9 @@ def ai_lite_score(body, lines):
         score += 2; reasons.append(f"情绪词密度{emo_d:.1f}/千字")
     if avg_sents_per_para > 5:
         score += 2; reasons.append(f"平均每段{avg_sents_per_para:.1f}句")
+    if dup5_pct >= 2:
+        score += 1; reasons.append(f"章内5-gram自重复率{dup5_pct:.1f}%")
+    score = min(score, 10)
     return score, reasons, {
         "chars": total,
         "sent_sd": sent_sd,
@@ -257,6 +269,7 @@ def ai_lite_score(body, lines):
         "simile_per_k": simile_d,
         "emotion_per_k": emo_d,
         "avg_sentences_per_paragraph": avg_sents_per_para,
+        "dup5_pct": round(dup5_pct, 2),
     }
 
 
