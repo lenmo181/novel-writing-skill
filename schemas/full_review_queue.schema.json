@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lenmo181/novel-writing-skill/schema/full_review_queue.schema.json",
+  "title": "全文审稿队列",
+  "type": "object",
+  "required": ["version", "round", "n_chapters", "to_chapter", "counts", "issues", "resolved_log"],
+  "properties": {
+    "version": {"type": "string", "pattern": "^7\\.\\d+$"},
+    "round": {"type": "integer", "minimum": 1},
+    "n_chapters": {"type": "integer", "minimum": 1},
+    "to_chapter": {"type": "integer", "minimum": 1},
+    "counts": {"type": "object"},
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "level", "cat", "loc", "msg", "evidence", "recommended_action", "repair_scope", "forbidden_action", "status"],
+        "properties": {
+          "issue_id": {"type": "string", "pattern": "^FR-\\d{2}-\\d{3}$"},
+          "level": {"enum": ["P0", "P1", "P2", "P3"]},
+          "cat": {"enum": ["单章", "跨章", "全书", "设定", "未知"]},
+          "loc": {"type": "string", "minLength": 1},
+          "msg": {"type": "string", "minLength": 1},
+          "evidence": {"type": "string"},
+          "recommended_action": {"type": "string"},
+          "repair_scope": {"type": "string"},
+          "forbidden_action": {"type": "string"},
+          "status": {"enum": ["open", "reopened", "fixed", "auto_fixed", "wont_fix"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "resolved_log": {"type": "array"}
+  },
+  "additionalProperties": true
+}
