@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿修复队列状态执行层（v7.35）。
+"""全文审稿修复队列状态执行层（v7.36）。
 
 只管理 mind/全文审稿队列.json 的状态，不直接修改正文、档案或大纲。
 状态：open / reopened / fixed / auto_fixed / wont_fix。
