@@ -4,12 +4,21 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.38**（2026-09-30）
+> **当前版本：v7.39**（2026-09-30）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
+
+## v7.39 本轮升级重点
+
+- 修复全文修复编排器隐式写入风险：正文机械写入必须显式 `--apply`。
+- 修复队列修复“全书横扫”问题，只处理队列明确命中的章节。
+- 新增 Canonical Parser，统一角色状态快照解析，减少跨工具口径漂移。
+- 修复 `--limit 0` 与混合缓冲节奏的真实漏检。
+- 新增第14-30项语义证据 Gate，正式交付可机器验证。
+- 发布副本比对扩展为 runtime 目录全量 parity。
 
 ## 这是什么
 
@@ -125,7 +134,7 @@ reopened
 
 ### 6. 章节交付 Gate
 
-chapter_readiness.py 把多个检查收敛为一个章节级结果：
+chapter_readiness.py 把多个检查收敛为一个章节级结果，并可通过 `--with-semantic` 验证第14-30项语义证据：
 
 - 单章机械校验
 - 项目健康
@@ -224,11 +233,21 @@ python tools/full_review.py "<项目根>" --strict --json
 
 问题队列默认落盘：mind/全文审稿队列.json
 
-### 第七步：修复和二审
+### 第七步：章节 30 项语义证据
+
+正式交付前：
+
+```bash
+python tools/chapter_readiness.py "<项目根>" 42 --with-semantic --full --json
+```
+
+语义记录：`mind/审校/第042章审校.json`，覆盖第14-30项，每项至少 `status + evidence`。
+
+### 第八步：修复和二审
 
 ```bash
 python tools/repair_orchestrator.py "<项目根>" prepare --json
-python tools/repair_orchestrator.py "<项目根>" apply-mechanical --json
+python tools/repair_orchestrator.py "<项目根>" apply-mechanical --apply --json
 python tools/repair_orchestrator.py "<项目根>" verify --full --json
 ```
 
@@ -496,7 +515,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.38**
+当前版本：**v7.39**
 
 历史版本：[versions/](versions/)
 
@@ -504,6 +523,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.39**：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate、runtime 全量 parity 与回归补盲。
 - **v7.38**：Apache 2.0 许可证、NOTICE、安全/贡献/仓库配置、CI 发布门和回归治理。
 - **v7.37**：章节交付 Gate、全文修复编排、项目审计日志、轻量记忆检索、JSON Schema。
 - **v7.36**：30 项核心校验注册表、规则 → 执行器 → 测试闭环。
