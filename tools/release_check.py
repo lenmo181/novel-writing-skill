@@ -19,6 +19,7 @@ from config import SKILL_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COMPARE_FILES = ("references/评测场景.md", "references/评测量表.md")  # legacy compatibility alias
 RUNTIME_DIRS = ("tools", "references", "schemas", "templates")
 RUNTIME_ROOT_FILES = ("SKILL.md", "README.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md")
 
