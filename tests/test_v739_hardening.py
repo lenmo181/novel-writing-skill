@@ -113,6 +113,22 @@ class TestV739Hardening(unittest.TestCase):
             self.assertEqual(chapter.read_text(encoding="utf-8"), before)
 
 
+    def test_wont_fix_is_never_executable(self):
+        ro = load_mod("repair_orchestrator")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mind").mkdir()
+            (root / "书稿").mkdir()
+            (root / "书稿" / "第001章_测试.md").write_text("第1章 测试\n\n他说：“你好。”\n", encoding="utf-8")
+            queue = root / "mind" / "全文审稿队列.json"
+            queue.write_text(json.dumps({"round": 1, "issues": [{
+                "issue_id":"FR-01-001","level":"P2","cat":"单章","loc":"第1章",
+                "msg":"机械问题：光杆说引导","evidence":"e","recommended_action":"a",
+                "repair_scope":"s","forbidden_action":"f","status":"wont_fix"
+            }]}, ensure_ascii=False), encoding="utf-8")
+            ro.prepare(root)
+            self.assertEqual(ro.resolve_targets(root), [])
+
     def test_repair_plan_rejects_changed_queue(self):
         ro = load_mod("repair_orchestrator")
         with tempfile.TemporaryDirectory() as td:
