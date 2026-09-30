@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import SKILL_VERSION
 import snapshot_project
 import audit_log
+import fix_said_tags
+from canonical_parser import chapter_files
 
 QUEUE = Path("mind") / "全文审稿队列.json"
 PLAN = Path("mind") / "全文修复任务包.json"
@@ -38,21 +40,60 @@ def classify(issue):
     msg = issue.get("msg", "")
     return "mechanical_candidate" if any(token in msg for token in MECHANICAL_HINTS) else "ai_assisted"
 
+def discover_mechanical_candidates(root, round_no):
+    """使用机械修复器 dry-run 探测可安全处理的章节；只写入任务包，不修改正文。"""
+    candidates = []
+    for number, path in chapter_files(root):
+        try:
+            result = fix_said_tags.process(str(path), True, None, True, True)
+        except (OSError, UnicodeDecodeError):
+            continue
+        changed = bool(result[6])
+        if not changed:
+            continue
+        tags_same, suffix, drop, beats, meta, walls = result[:6]
+        details = []
+        if tags_same or suffix or drop or beats:
+            details.append(f"说类引导={tags_same + suffix + drop + beats}")
+        if meta:
+            details.append(f"元信息={meta}")
+        if walls:
+            details.append(f"文字墙={walls}")
+        candidates.append({
+            "issue_id": f"MECH-{round_no:02d}-{number:03d}",
+            "level": "P2",
+            "cat": "单章",
+            "loc": f"第{number}章",
+            "msg": "机械修复候选：" + "；".join(details),
+            "evidence": f"fix_said_tags dry-run：{path.name}",
+            "recommended_action": "fix_said_tags.py --files --walls --meta",
+            "repair_scope": str(path.relative_to(root)),
+            "forbidden_action": "禁止整章重写；先快照后最小范围修复",
+            "status": "open",
+            "repair_mode": "mechanical_candidate",
+            "verification": ["chapter_diff.py", "check_chapter.py", "full_review.py"]
+        })
+    return candidates
+
 def prepare(root):
     queue = load_queue(root)
     issues = queue.get("issues") or []
+    round_no = int(queue.get("round") or 1)
+    mechanical = discover_mechanical_candidates(root, round_no)
+    existing_locs = {str(item.get("loc", "")) for item in issues}
+    issues_with_repairs = issues + [item for item in mechanical if item["loc"] not in existing_locs]
     plan = {
         "version": SKILL_VERSION,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "round": queue.get("round"),
+        "round": round_no,
         "project": str(root),
         "snapshot_required": True,
         "write_authorization_required": True,
         "queue_sha256": queue_sha256(root),
         "issues": [
-            {**issue, "repair_mode": classify(issue),
+            {**issue, "repair_mode": issue.get("repair_mode") or classify(issue),
              "verification": ["check_chapter.py", "chapter_diff.py", "continuity_check.py", "full_review.py"]}
-            for issue in issues
+            for issue in issues_with_repairs
         ],
     }
     target = root / PLAN
