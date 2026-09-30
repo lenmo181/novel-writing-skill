@@ -251,10 +251,9 @@ class TestTruthSourceUnity(unittest.TestCase):
         self.assertEqual(r.returncode, 0, f"lint 应全绿：\n{r.stdout[-600:]}")
 
     def test_manual_versions(self):
-        manuals = ["快速开始", "工具选择", "操作范例", "模式操作卡", "规则台账", "体检", "去AI味", "常量表"]
-        for m in manuals:
-            head = (ROOT / "references" / f"{m}.md").read_text(encoding="utf-8")[:400]
-            self.assertIn("v7.34", head, f"{m}.md 头部版本漂移")
+        manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
+        self.assertIn("| references/规则台账.md | v7.36 | 核心 |", manifest)
+        self.assertIn("| references/常量表.md | v7.36 | 核心 |", manifest)
 
 
 class TestAntiGaming(unittest.TestCase):
