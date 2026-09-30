@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-grep_consistency.py — mind/ 档案与正文的四类硬矛盾告警（v7.27，轻量·仅告警）
+grep_consistency.py — mind/ 档案与正文的四类硬矛盾告警（v7.39，轻量·仅告警）
 用法: python grep_consistency.py [项目根目录] [--limit 200]
 
 查四类机器可判定的硬矛盾（不做语义推断，只做字面命中）:
@@ -191,9 +191,17 @@ def scan(project, limit=200):
         # B 类（伤势冲突）按「最近 N 章」回溯，取全书尾部窗口
         limit = max(limit, 0)  # --limit 0/负数归零（此前 [-0:] 会切片成全书，语义反转）
         truncated = len(chapters) > limit
-        scanned = chapters[-limit:] if truncated else chapters
-        print(f"[i] B 类扫描范围：第{scanned[0][0]}-{scanned[-1][0]}章（共 {len(scanned)} 章）"
-              + (f"；更早章节超出上限 {limit} 章未扫描" if truncated else ""))
+        if limit == 0:
+            scanned = []
+        elif truncated:
+            scanned = chapters[-limit:]
+        else:
+            scanned = chapters
+        if scanned:
+            print(f"[i] B 类扫描范围：第{scanned[0][0]}-{scanned[-1][0]}章（共 {len(scanned)} 章）"
+                  + (f"；更早章节超出上限 {limit} 章未扫描" if truncated else ""))
+        else:
+            print(f"[i] B 类扫描范围：0 章（--limit={limit}，不扫描历史章节）")
 
     all_names = set(chars.keys())
     for name, fields in chars.items():
