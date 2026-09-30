@@ -217,8 +217,8 @@ class TestDowngradeRules(unittest.TestCase):
         self.assertGreaterEqual(len(rows), 30)
         for r in rows:
             cells = [c.strip() for c in r.split("|")[1:-1]]
-            self.assertEqual(len(cells), 9, f"字段数异常：{r[:30]}")
-            self.assertTrue(cells[7] and cells[8], f"治理缺环（工具/测试为空）：{cells[0]}")
+            self.assertEqual(len(cells), 11, f"字段数异常：{r[:30]}")
+            self.assertTrue(cells[9] and cells[10], f"治理缺环（工具/测试为空）：{cells[0]}")
 
 
 class TestTruthSourceUnity(unittest.TestCase):
@@ -252,8 +252,8 @@ class TestTruthSourceUnity(unittest.TestCase):
 
     def test_manual_versions(self):
         manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
-        self.assertIn("| references/规则台账.md | v7.36 | 核心 |", manifest)
-        self.assertIn("| references/常量表.md | v7.36 | 核心 |", manifest)
+        self.assertIn("| references/规则台账.md | v7.38 | 核心 |", manifest)
+        self.assertIn("| references/常量表.md | v7.38 | 核心 |", manifest)
 
 
 class TestAntiGaming(unittest.TestCase):
