@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+"""v7.39 hardening 回归测试。"""
+import json
+import py_compile
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+import importlib.util
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOLS = ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
+
+def load_mod(name):
+    spec = importlib.util.spec_from_file_location(name, TOOLS / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+class TestV739Hardening(unittest.TestCase):
+    def test_modified_python_files_compile(self):
+        for rel in ("tools/canonical_parser.py", "tools/full_review.py", "tools/grep_consistency.py", "tools/repair_orchestrator.py", "tools/chapter_readiness.py", "tools/fix_said_tags.py", "tools/release_check.py", "tools/lint_skill.py"):
+            py_compile.compile(str(ROOT / rel), doraise=True)
+
+    def test_canonical_role_parser(self):
+        parser = load_mod("canonical_parser")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "角色状态快照.md"
+            path.write_text("# 角色状态快照\n\n## 李四\n- 状态：已亡\n- 最后出场：第12章\n- 别名：小李、阿四\n", encoding="utf-8")
+            data = parser.parse_role_snapshot(path)
+            self.assertEqual(data["李四"]["最后出场"], "第12章")
+            self.assertEqual(data["李四"]["别名"], "小李、阿四")
+
+    def test_full_review_mixed_buffer_streak(self):
+        fr = load_mod("full_review")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mind").mkdir()
+            (root / "书稿").mkdir()
+            for n in range(1, 5):
+                (root / "书稿" / f"第{n:03d}章_测试.md").write_text(f"第{n}章 测试\n\n正文。\n", encoding="utf-8")
+            (root / "mind" / "章节目录.md").write_text("| 章号 | 节奏类型 |\n|---|---|\n| 1 | 缓冲-对话 |\n| 2 | 缓冲-线索 |\n| 3 | 缓冲-代价 |\n| 4 | 缓冲-对话 |\n", encoding="utf-8")
+            review = fr.Review(root)
+            review.scan_rhythm(root, [])
+            self.assertTrue(any("缓冲型节奏合计连续 4 章" in item["msg"] for item in review.issues))
+
+    def test_grep_limit_zero_has_zero_history(self):
+        gc = load_mod("grep_consistency")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "书稿").mkdir()
+            (root / "mind").mkdir()
+            for n in (1, 2, 3):
+                (root / "书稿" / f"第{n}章_测试.md").write_text("正文。\n", encoding="utf-8")
+            (root / "mind" / "角色状态快照.md").write_text("## 李四\n- 状态：重伤\n", encoding="utf-8")
+            out = StringIO()
+            with redirect_stdout(out):
+                gc.scan(str(root), 0)
+            self.assertIn("B 类扫描范围：0 章", out.getvalue())
+
+    def test_repair_cycle_without_apply_is_non_mutating(self):
+        ro = load_mod("repair_orchestrator")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mind").mkdir()
+            (root / "书稿").mkdir()
+            chapter = root / "书稿" / "第001章_测试.md"
+            chapter.write_text("第1章 测试\n\n他说：“你好。”\n", encoding="utf-8")
+            (root / "mind" / "全文审稿队列.json").write_text(json.dumps({"round": 1, "issues": [{"level": "P2", "cat": "单章", "loc": "第1章", "msg": "他说：引导过多"}]}, ensure_ascii=False), encoding="utf-8")
+            before = chapter.read_text(encoding="utf-8")
+            rc = ro.main([str(root), "cycle", "--json"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(chapter.read_text(encoding="utf-8"), before)
+
+    def test_semantic_gate_accepts_complete_evidence(self):
+        cr = load_mod("chapter_readiness")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "书稿").mkdir()
+            (root / "mind" / "审校").mkdir(parents=True)
+            (root / "书稿" / "第001章_测试.md").write_text("第1章 测试\n\n正文。\n", encoding="utf-8")
+            checks = {str(i): {"status": "pass", "evidence": f"证据{i}", "location": f"第{i}项"} for i in range(14, 31)}
+            (root / "mind" / "审校" / "第001章审校.json").write_text(json.dumps({"version": "7.39", "chapter": 1, "checks": checks}, ensure_ascii=False), encoding="utf-8")
+            result = cr.semantic_gate(root, 1)
+            self.assertTrue(result["ok"])
+
+if __name__ == "__main__":
+    unittest.main(verbosity=1)
