@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""创建可直接续写的网络小说项目骨架（v7.34）。
+"""创建可直接续写的网络小说项目骨架（v7.39）。
 
 只创建缺失文件，默认不覆盖已有内容；适合新书初始化，也适合给空目录补齐
 标准档案。模板使用 UTF-8 和标准库，生成后可立即交给 project_audit 检查。
@@ -77,6 +77,7 @@ def project_files(title: str, genre: str, platform: str, target_words: str, toda
             "## 开放项\n\n| 编号 | 级别 | 类别 | 位置 | 问题 | 处置状态（待办/已修/搁置） |\n|---|---|---|---|---|---|\n\n"
             "## 继承的伏笔开放项\n\n暂无。\n\n## 下批起点\n\n- 下一批审查从第1章开始\n"
         ),
+        "mind/审校/.gitkeep": "",
         "mind/回顾/README.md": f"# 单章回顾\n\n{GENERATED_MARKER}。写完每章后保存为 `第XXX章回顾.md`。\n",
         "书稿/.gitkeep": "",
         "剧本/.gitkeep": "",
