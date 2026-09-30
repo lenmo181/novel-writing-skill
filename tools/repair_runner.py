@@ -7,6 +7,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +23,7 @@ REQUIRED_ISSUE_FIELDS = {"issue_id", "level", "cat", "loc", "msg", "evidence", "
 def compatible_queue_version(value):
     if value in {None, config.SKILL_VERSION}:
         return True
-    match = __import__("re").fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(value))
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(value))
     if not match:
         return False
     major, minor = int(match.group(1)), int(match.group(2))
