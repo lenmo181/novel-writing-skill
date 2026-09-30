@@ -196,12 +196,28 @@ def main() -> int:
         if not (ROOT / "tests" / tf).is_file():
             fail(errors, f"治理测试缺失：tests/{tf}")
 
-    # 5) 活跃手册版本：references 下运行时手册全部纳入治理；versions/ 不参与。
-    active_manuals = [str(p.relative_to(ROOT)) for p in (ROOT / "references").glob("*.md")]
-    for m in active_manuals:
-        head = read(m)[:400]
-        if f"v{SKILL_VERSION}" not in head:
-            fail(errors, f"活跃手册版本漂移：{m} 头部未标 v{SKILL_VERSION}")
+    # 5) 运行时手册版本台账：实际 references/*.md 必须全部登记且统一指向当前版本。
+    manifest_path = "references/版本台账.md"
+    manifest = read(manifest_path)
+    actual_manuals = {str(p.relative_to(ROOT)) for p in (ROOT / "references").glob("*.md")}
+    manifest_rows = re.findall(r"^\| (references/[^|]+\.md) \| (v\d+\.\d+(?:\.\d+)?) \| ([^|]+) \|$", manifest, re.M)
+    manifest_paths = [row[0] for row in manifest_rows]
+    if not manifest:
+        fail(errors, f"运行时版本台账缺失：{manifest_path}")
+    if len(manifest_paths) != len(set(manifest_paths)):
+        fail(errors, "运行时版本台账存在重复路径")
+    if set(manifest_paths) != actual_manuals:
+        missing = sorted(actual_manuals - set(manifest_paths))
+        stale = sorted(set(manifest_paths) - actual_manuals)
+        if missing:
+            fail(errors, f"运行时版本台账漏登记：{missing}")
+        if stale:
+            fail(errors, f"运行时版本台账存在悬空路径：{stale}")
+    for path, version, _category in manifest_rows:
+        if version != f"v{SKILL_VERSION}":
+            fail(errors, f"运行时手册版本漂移：{path}={version}，当前应为 v{SKILL_VERSION}")
+    if manifest and len(manifest_rows) != len(actual_manuals):
+        fail(errors, f"运行时版本台账条目数异常：{len(manifest_rows)} / {len(actual_manuals)}")
 
     if errors:
         for error in errors:
