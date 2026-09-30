@@ -77,7 +77,6 @@ def project_files(title: str, genre: str, platform: str, target_words: str, toda
             "## 开放项\n\n| 编号 | 级别 | 类别 | 位置 | 问题 | 处置状态（待办/已修/搁置） |\n|---|---|---|---|---|---|\n\n"
             "## 继承的伏笔开放项\n\n暂无。\n\n## 下批起点\n\n- 下一批审查从第1章开始\n"
         ),
-        "mind/审校/.gitkeep": "",
         "mind/回顾/README.md": f"# 单章回顾\n\n{GENERATED_MARKER}。写完每章后保存为 `第XXX章回顾.md`。\n",
         "书稿/.gitkeep": "",
         "剧本/.gitkeep": "",
@@ -111,6 +110,7 @@ def init_project(target: Path, title: str, genre: str = "待补充", platform: s
     skipped: list[str] = []
     if not dry_run:
         target.mkdir(parents=True, exist_ok=True)
+        (target / "mind" / "审校").mkdir(parents=True, exist_ok=True)
     for rel, content in files.items():
         path = target / rel
         if path.exists():
