@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v7.35 治理回归测试：回归状态语义、修复队列状态层、11列规则台账和运行时版本台账。"""
+"""v7.36 治理回归测试：回归状态语义、修复队列状态层、11列规则台账和运行时版本台账。"""
 import json
 import subprocess
 import sys
@@ -86,7 +86,7 @@ class TestGovernanceSchemas(unittest.TestCase):
         listed = {x.split("|")[1].strip() for x in rows}
         self.assertEqual(listed, actual)
         self.assertTrue(rows)
-        self.assertTrue(all("| v7.35 |" in x for x in rows))
+        self.assertTrue(all("| v7.36 |" in x for x in rows))
 
 
 class TestReleaseVersion(unittest.TestCase):
@@ -96,8 +96,8 @@ class TestReleaseVersion(unittest.TestCase):
         self.assertEqual(RELEASE_DATE, "2026-09-30")
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("v7.35", skill.split("## 📚 版本历史", 1)[0])
-        self.assertIn("v7.35", readme.split("## 版本历史", 1)[0])
+        self.assertIn("v7.36", skill.split("## 📚 版本历史", 1)[0])
+        self.assertIn("v7.36", readme.split("## 版本历史", 1)[0])
 
 
 if __name__ == "__main__":
