@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -22,6 +23,10 @@ import audit_log
 QUEUE = Path("mind") / "全文审稿队列.json"
 PLAN = Path("mind") / "全文修复任务包.json"
 MECHANICAL_HINTS = ("他说：", "她说：", "说道", "文字墙", "元信息残留", "格式残留")
+
+def queue_sha256(root):
+    path = root / QUEUE
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def load_queue(root):
     path = root / QUEUE
@@ -43,6 +48,7 @@ def prepare(root):
         "project": str(root),
         "snapshot_required": True,
         "write_authorization_required": True,
+        "queue_sha256": queue_sha256(root),
         "issues": [
             {**issue, "repair_mode": classify(issue),
              "verification": ["check_chapter.py", "chapter_diff.py", "continuity_check.py", "full_review.py"]}
@@ -64,6 +70,9 @@ def load_plan(root):
 def resolve_targets(root):
     """只解析任务包中机械候选项明确指出的章节；无明确章节则不自动写。"""
     plan = load_plan(root)
+    expected = plan.get("queue_sha256")
+    if expected and expected != queue_sha256(root):
+        raise ValueError("修复队列已变化：当前队列与 prepare 时不一致，拒绝直接写入；请重新 prepare")
     targets = []
     seen = set()
     for issue in plan.get("issues", []):
