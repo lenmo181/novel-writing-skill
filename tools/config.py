@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.35"
+SKILL_VERSION = "7.36"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
 RELEASE_DATE = "2026-09-30"
 
