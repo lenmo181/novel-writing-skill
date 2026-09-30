@@ -116,7 +116,7 @@ def render(report):
         "|---|---|---:|",
     ]
     for gate in report["gates"]:
-        lines.append('f'| {gate["name"]} | {"PASS" if gate["ok"] else "REVISE"} | {gate["exit_code"]} |')
+        lines.append(f"| {gate['name']} | {'PASS' if gate['ok'] else 'REVISE'} | {gate['exit_code']} |")
     lines += [
         "",
         "结论：" + ("PASS，可进入交付/作者验收。" if report["ok"] else "REVISE，先处理失败 Gate。"),
