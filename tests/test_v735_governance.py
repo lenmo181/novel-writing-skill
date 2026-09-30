@@ -12,6 +12,7 @@ TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import full_review  # noqa: E402
+from config import SKILL_VERSION
 
 
 class TestRegressionSemantics(unittest.TestCase):
