@@ -23,9 +23,15 @@ def read_text(path: Path) -> str:
     return ""
 
 def parse_role_snapshot(path: Path) -> dict[str, dict]:
-    """返回 {角色名: {字段..., "_line": 行号}}，与项目标准模板一致。"""
+    """返回 {角色名: {字段..., "_line": 行号}，同时兼容标准列表式与旧表格式。"""
     rows: dict[str, dict] = {}
     current: str | None = None
+    table_headers: list[str] | None = None
+    role_headers = {"角色", "角色名", "姓名", "人物", "人物名"}
+    aliases = {"别名", "别称", "外号"}
+    status_fields = {"状态", "当前状态"}
+    last_fields = {"最后出场", "末次出场", "最后出现"}
+    first_fields = {"首次出场章", "首次出场", "初登场"}
     for lineno, line in enumerate(read_text(path).splitlines(), 1):
         s = line.strip()
         if not s:
@@ -33,11 +39,41 @@ def parse_role_snapshot(path: Path) -> dict[str, dict]:
         m = ROLE_HEADING_RE.match(s)
         if m:
             current = m.group(1).strip(" *#")
+            table_headers = None
             if current in {"角色状态快照", "角色名"}:
                 current = None
             elif current:
                 rows.setdefault(current, {"_line": lineno})
             continue
+
+        if "|" in s:
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            if len(cells) >= 2 and not all(set(c.replace(":", "").strip()) <= {"-", ":", " "} for c in cells):
+                if any(c in role_headers for c in cells) and any(c in (aliases | status_fields | last_fields | first_fields) for c in cells):
+                    table_headers = cells
+                    continue
+                if table_headers and len(cells) >= len(table_headers):
+                    role_index = next((i for i, c in enumerate(table_headers) if c in role_headers), None)
+                    if role_index is not None and role_index < len(cells):
+                        name = cells[role_index].strip()
+                        if name and name not in role_headers:
+                            record = rows.setdefault(name, {"_line": lineno})
+                            for i, header in enumerate(table_headers):
+                                if i >= len(cells):
+                                    break
+                                value = cells[i].strip()
+                                if not value:
+                                    continue
+                                if header in aliases:
+                                    record["别名"] = value
+                                elif header in status_fields:
+                                    record["状态"] = value
+                                elif header in last_fields:
+                                    record["最后出场"] = value
+                                elif header in first_fields:
+                                    record["首次出场章"] = value
+                            continue
+
         if current is None:
             continue
         fm = FIELD_RE.match(s)
