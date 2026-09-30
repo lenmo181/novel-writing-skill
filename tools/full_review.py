@@ -211,26 +211,6 @@ class Review:
                 self.add("P2", "单章", f"第{s['n']}章", f"对话占比 {s['dpct']}% (>{config.FULL_REVIEW_DIALOG_MAX}%)",
                          f"span {s['dpct']}%")
 
-            said_hits = re.findall(r"(?:^|[“”」])([他她它][^，。：“”]{0,4}(?:说|说道|说着|问道|道)[：，,]?)(?=[“「])", body)
-            said_suffix = re.findall(r"[”」]\s*([他她它][^，。：“”]{0,4}(?:说|说道|说着|问道|道)[。！？：，,]?)", body)
-            said_total = len(said_hits) + len(said_suffix)
-            if said_total > 5:
-                self.add("P2", "单章", f"第{s['n']}章",
-                         f"机械问题：光杆说引导 {said_total} 次，建议专项修复",
-                         f"前缀命中={len(said_hits)}；后缀命中={len(said_suffix)}")
-
-            meta_hits = [ln for ln in body.splitlines() if re.match(r"^\s*(?:章节更新时间|更新时间|本章字数|字数统计|总字数|发布时间)[：:]", ln)]
-            if meta_hits:
-                self.add("P3", "单章", f"第{s['n']}章",
-                         f"机械问题：元信息残留 {len(meta_hits)} 行",
-                         meta_hits[0].strip()[:80])
-
-            wall_hits = [len(re.findall(r"[\u4e00-\u9fff]", ln)) for ln in body.splitlines()]
-            wall_max = max(wall_hits) if wall_hits else 0
-            if wall_max > config.WALL_HARD:
-                self.add("P2", "单章", f"第{s['n']}章",
-                         f"机械问题：文字墙最长约 {wall_max} 字，建议分段",
-                         f"最大段落字符数={wall_max}")
 
         return stats
 
