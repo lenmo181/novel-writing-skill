@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.35）。
+"""技能包统一自检（v7.37）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -24,17 +24,22 @@ from config import RELEASE_DATE, SKILL_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED_DIRS = ("references", "templates", "tools", "versions")
+REQUIRED_DIRS = ("references", "templates", "tools", "versions", "schemas")
 REQUIRED_FILES = (
     "SKILL.md",
     "README.md",
     "templates/项目模板.md",
+    "SECURITY.md",
+    "schemas/full_review_queue.schema.json",
+    "schemas/project_metadata.schema.json",
+    "schemas/chapter_readiness.schema.json",
     "references/快速开始.md",
     "references/工具选择.md",
     "references/研究来源.md",
     "references/常见问题.md",
     "references/操作范例.md",
     "references/模式操作卡.md",
+    "references/工程化能力矩阵.md",
     "references/评测场景.md",
     "references/评测量表.md",
     "tools/config.py",
@@ -47,6 +52,10 @@ REQUIRED_FILES = (
     "tools/entity_index.py",
     "tools/project_health.py",
     "tools/full_review.py",
+    "tools/chapter_readiness.py",
+    "tools/repair_orchestrator.py",
+    "tools/audit_log.py",
+    "tools/memory_search.py",
 )
 
 RUNTIME_TOOLS = (
