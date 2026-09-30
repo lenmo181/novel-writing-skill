@@ -190,9 +190,9 @@ class RuleDocs(unittest.TestCase):
 
     def test_version(self):
         from config import SKILL_VERSION, RELEASE_DATE
-        self.assertEqual(SKILL_VERSION, "7.36")
+        self.assertEqual(SKILL_VERSION, "7.38")
         self.assertEqual(RELEASE_DATE, "2026-09-30")
-        self.assertTrue("v7.36" in self.skill or "v7.33" in self.skill)
+        self.assertTrue("v7.38" in self.skill or "v7.33" in self.skill)
 
     def test_constants_code_consistency(self):
         # v7.34 起阈值移入 config（本测试原为文本断言，按治理要求改由行为测试覆盖：
