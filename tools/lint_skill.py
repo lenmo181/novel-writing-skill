@@ -67,6 +67,9 @@ def main() -> int:
 
     if f"v{SKILL_VERSION}" not in skill.split("## 📚 版本历史", 1)[0]:
         fail(errors, f"SKILL.md 活跃正文缺少 v{SKILL_VERSION}")
+    # frontmatter 闸门：分隔符必须是干净的 `---`（此前被转义成 `\---` 导致打包与技能加载双双失败）
+    if not re.match(r"^---\nname:", skill) or "\n---\n" not in skill[:2000]:
+        fail(errors, "SKILL.md frontmatter 损伤：首行必须是 `---` 且包含 name: 字段")
     if f"v{SKILL_VERSION}" not in readme.split("## 版本历史", 1)[0]:
         fail(errors, f"README.md 活跃正文缺少 v{SKILL_VERSION}")
     if RELEASE_DATE not in skill.split("## 📚 版本历史", 1)[0]:
