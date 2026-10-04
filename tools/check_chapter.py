@@ -15,6 +15,11 @@ check_chapter.py — 网络小说创作技能 v7.35 章节机械校验脚本
     span口径实测 10-49%，<15 硬卡、15-25 警告、25-50 健康指导区）；
     短剧剧本口径传 --dialog-min 60（>=55 时自动豁免上限检查）
 --ai-lite 只跑零依赖 AI 味粗测，不执行完整章节硬卡；适合没有墨尺服务时先做初筛。
+    v7.40 起粗测升级为百分制人类分 + 句法/节奏/人味三维短板（口径对齐朱雀/墨尺的
+    「≥90 达标 / 80-89 警告 / <80 需改写」，本地启发式定位用，不替代模型结论）。
+--chapter-index N 章节序号（1 起）。N≤3 时启用**前3章开篇闸门**（黄金开篇铁律，
+    推荐位生死线）：禁开头8条逐条机械检测 + 前300字「人物+异常」+ 前3段钩子信号≥1，
+    命中即硬伤禁止交付；未传参时自动从标题行「第N章」推断。N>3 或无标题且未传参则跳过。
 """
 import argparse
 import os
@@ -29,6 +34,9 @@ from config import (
     DEFAULT_CHAPTER_MIN,
     DEFAULT_DIALOG_MAX,
     DEFAULT_DIALOG_MIN,
+    OPENING_GATE_CHAPTERS,
+    OPENING_PARAS,
+    OPENING_WINDOW_CHARS,
     SKILL_VERSION,
     TITLE_MAX,
     TITLE_MIN,
@@ -188,6 +196,253 @@ MARKER_RE = re.compile(r"【[^】]*(?:段完成|累计|对话约|全章对话|�
 # v7.17：正文里禁止夹带的元信息行（自动化写作易残留）
 META_LINE_RE = re.compile(r"^\s*(?:章节更新时间|更新时间|本章字数|字数统计|总字数|发布时间)[：:]")
 
+# ═══════════════ 前3章开篇闸门（v7.40，黄金开篇铁律：推荐位生死线）═══════════════
+# 禁开头8条的可机械形态 + 前300字「人物+异常」+ 前3段钩子信号。全部只看开篇窗口，
+# 不追溯正文后段；题材例外（说书体等）经书格裁决，本闸门不设 --wall 式参数放宽。
+
+# ① 天气/景色/时间交代（首句命中且首句无任何人物信号才算——有人物在做事不算铺陈开场）
+WEATHER_TIME_OPEN_RE = re.compile(
+    "^(今天|今夜|今晨|清晨|早晨|凌晨|黎明|天刚|天色|傍晚|黄昏|深夜|午夜|正午|晌午|"
+    "夜幕|夜色|月色|月光|夜空|天空|天边|太阳|烈日|骄阳|朝阳|晨光|暮色|夕阳|残阳|晚霞|朝霞|"
+    "乌云|白云|云层|细雨|小雨|中雨|大雨|暴雨|雷雨|雨水|雨丝|雨点|雪花|大雪|暴雪|狂风|风雪|"
+    "微风|春风|秋风|寒风|冷风|薄雾|浓雾|晨雾|雾气|空气|盛夏|酷暑|炎夏|寒冬|深秋|初秋|初春|"
+    "盛春|群山|大山|深山|山脚|森林|密林|树林|竹林|河流|大江|江水|河水|湖水|湖面|大海|海面|"
+    "海浪|草原|戈壁|沙漠|小镇|村庄|小村|古城|老街|青石板|城池|宫殿|城墙|庭院|深宫)"
+)
+# 人物信号（用于①的排除条件与前300字「人物」检测）：人称代词，或「二至四字名词+常见动作动词」
+NAME_ACTION_RE = re.compile(
+    "[\u4e00-\u9fff]{2,4}(?:推|拉|抓|拿|提|扛|背|抱|喊|叫|嚷|吼|骂|冲|奔|跑|逃|追|走|来|去|回|进|出|上|下|"
+    "站|坐|蹲|跪|爬|跳|扑|挡|拔|翻|扔|捡|拾|敲|拍|掐|咬|踢|踹|蹬|躲|藏|缩|拦|拽|扯|抬|举|放|松|握|攥|"
+    "盯|望|看|瞧|瞥|听|闻|嗅|说|道|问|答|喊|叫|笑|哭|叹|哼|骂|想|记|数|算|皱|眯|咽|喘|颤|抖)"
+)
+PRONOUN_RE = re.compile(r"[他她我它你]")
+# ②③ 做梦梦醒 / "XX睁开眼"式醒来（只看开篇窗口）
+DREAM_OPEN_RE = re.compile(r"梦[中境]|梦里|做梦|一场梦|是梦|噩?梦(?:惊|吵)?醒|从梦中|惊醒")
+WAKE_OPEN_RE = re.compile(r"睁开[了双一一]?.{0,2}眼|睁眼|醒了过来|醒了|睡眼|睡意")
+# ④ 照镜子自视外貌
+MIRROR_OPEN_RE = re.compile(
+    r"(?:铜?镜[子里的面]{1,2}|镜中|镜里|倒影)(?:[^。！？\n]{0,14})"
+    r"(自己|这张脸|脸|眉|眼|眸|容颜|容貌|模样|长相|身材|皮肤|肤)"
+)
+# ⑤ 大段回忆身世倒叙（前3段叙述部分命中≥2个标记）
+RECALL_MARKERS = ["多年前", "十年前", "数年前", "几十年前", "自幼", "从小", "小时候", "那年",
+                  "想当年", "记忆里", "记忆中", "回忆起", "回忆", "曾经", "往昔", "往事", "身世"]
+# ⑥ 世界观解说（前3段叙述部分命中即中——只抓说书腔也救不了的旁白解说）
+EXPO_MARKERS = ["在这个世界", "这方世界", "众所周知", "所谓的", "修仙界", "修行界", "大陆上",
+                "自古以来", "世界规则", "灵气复苏", "天地间有", "世间万物"]
+# ⑧ 日常流水账（前3段命中≥3个标记）
+ROUTINE_MARKERS = ["起床", "洗漱", "早饭", "早餐", "午饭", "晚饭", "做饭", "买菜", "上学", "放学",
+                   "下班", "上班", "打卡", "地铁", "公交", "打扫", "洗衣", "收拾屋子", "熬了夜", "睡觉"]
+# 前300字「异常」信号与前3段「钩子信号」共用词族（黄金开篇：人物+异常；开篇三句入戏）
+HOOK_SUSPENSE_WORDS = [
+    "竟然", "居然", "忽然", "突然", "陡然", "猛然", "蓦然", "不对劲", "不对", "不妙", "诡异",
+    "奇怪", "怪异", "莫名", "离奇", "异常", "反常", "邪门", "危机", "危险", "杀", "死", "尸",
+    "血", "惊", "炸", "轰", "砰", "嘶", "吼", "惨叫", "尖叫", "怒吼", "咆哮", "倒计时", "面板",
+    "系统", "金手指", "秘密", "禁忌", "诅咒", "鬼", "妖", "魔", "邪", "变故", "异动", "消失",
+    "不见了", "出事", "救命", "滚开", "站住", "别动", "抓住", "凶手", "黑影", "敌", "贼",
+    "匪", "劫", "叛", "背叛", "出卖", "下毒", "暗算", "埋伏", "盯上", "跟踪", "疯",
+]
+HOOK_TENSE_VERBS = ["盯", "攥", "拽", "躲", "藏", "屏息", "屏住", "压低声音", "压着嗓子",
+                    "蹑手蹑脚", "小心翼翼", "警惕", "戒备", "防备", "潜伏", "潜入", "偷"]
+HOOK_PANEL_MARKS = ["【", "倒计时", "剩余时间", "限时"]
+
+
+def _clamp100(v):
+    return max(0.0, min(100.0, v))
+
+
+def count_hook_signals(segment):
+    """返回 segment 内钩子信号总数（悬念词/紧张动作/面板/强标点各计其数）。"""
+    n = sum(segment.count(w) for w in HOOK_SUSPENSE_WORDS)
+    n += sum(segment.count(w) for w in HOOK_TENSE_VERBS)
+    n += sum(segment.count(w) for w in HOOK_PANEL_MARKS)
+    n += segment.count("！") + segment.count("？")
+    return n
+
+
+def person_signal(segment):
+    """人物信号：人称代词≥2，或存在「名词+动作」结构，或代词≥1 且有姓名式三字词。"""
+    pron = len(PRONOUN_RE.findall(segment))
+    if pron >= 2 or NAME_ACTION_RE.search(segment):
+        return True
+    return pron >= 1 and re.search(r"[\u4e00-\u9fff]{2,3}(?:说道|喊道|想着|知道|明白)", segment) is not None
+
+
+def strip_dialogue(body, span_re):
+    """把对话区间替换为全角空格，返回纯叙述文本（解说/回忆检测用，防对话内误伤）。"""
+    def _blank(m):
+        return "\u3000" * len(m.group(0))
+    return span_re.sub(_blank, body)
+
+
+def first_countable(body, limit):
+    """取正文前 limit 个可计数字符组成的检测窗。"""
+    return "".join(COUNTABLE.findall(body)[:limit])
+
+
+# 章节序号中文数字解析（标题行「第N章」自动推断 --chapter-index 用，覆盖到千）
+_CN_DIGIT = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+             "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def cn_to_int(s):
+    s = s.strip()
+    if s.isdigit():
+        return int(s)
+    if not s or any(ch not in _CN_DIGIT and ch not in "十百千" for ch in s):
+        return None
+    total, num = 0, 0
+    for ch in s:
+        d = _CN_DIGIT.get(ch)
+        if d is not None:
+            num = num * 10 + d if num else d if d else num
+        elif ch == "十":
+            total += (num or 1) * 10
+            num = 0
+        elif ch == "百":
+            total += (num or 1) * 100
+            num = 0
+        elif ch == "千":
+            total += (num or 1) * 1000
+            num = 0
+    return total + num
+
+
+def infer_chapter_index(text):
+    """从标题行「第N章」推断章节序号；推不出返回 None。"""
+    m = TITLE_RE.match(text.strip())
+    if not m:
+        for ln in text.splitlines():
+            m = TITLE_RE.match(ln.strip())
+            if m:
+                break
+    if not m:
+        return None
+    return cn_to_int(m.group(0).strip()[1:-1])
+
+
+def opening_gate(body, lines, span_re, chapter_index, failures, warnings):
+    """前3章开篇专项（黄金开篇铁律）。命中禁开头/缺人物异常/无钩子 = 硬伤。"""
+    paras = lines[:OPENING_PARAS]
+    head = "".join(paras)
+    narration = strip_dialogue(head, span_re)
+    window = first_countable(body, OPENING_WINDOW_CHARS)
+    hits = []
+
+    def para_dialogue_ratio(p):
+        t = count_chars(p)
+        return (dialogue_chars(p, span_re) / t) if t else 0.0
+
+    # ① 天气/景色/时间交代：首句（前两个句读单元）命中且整句无人物信号
+    first_sent = re.split("[。！？…]", head, 1)[0]
+    wm = WEATHER_TIME_OPEN_RE.match(head.lstrip("\u3000“\"「"))
+    if wm and not person_signal(first_sent):
+        hits.append(f"禁开头①「{wm.group(1)}」天气/景色/时间开场——第一句禁铺陈交代，改人物+动作直入")
+
+    # ② 做梦梦醒
+    if DREAM_OPEN_RE.search(window):
+        hits.append("禁开头② 做梦/梦醒开场——梦境开头读者直接划走，改真实事件")
+    # ③ "XX睁开眼"式醒来（窗口更窄：前120可计数字符）
+    wake_win = first_countable(body, 120)
+    if WAKE_OPEN_RE.search(wake_win):
+        hits.append("禁开头③「睁开眼/醒来」式开场——穿越重生老套起手，直接从事件中间写起")
+    # ④ 照镜子自视外貌
+    mm = MIRROR_OPEN_RE.search(window)
+    if mm:
+        hits.append(f"禁开头④ 照镜子自视外貌（…{mm.group(0)[:12]}…）——外貌写进动作与他人反应")
+    # ⑤ 大段回忆身世倒叙：前3段叙述部分≥2个标记
+    recall_n = sum(narration.count(w) for w in RECALL_MARKERS)
+    if recall_n >= 2:
+        hits.append(f"禁开头⑤ 回忆身世倒叙嫌疑（前3段命中{recall_n}个回忆标记）——回忆切碎塞进当下事件")
+    # ⑥ 世界观解说
+    expo_hits = [w for w in EXPO_MARKERS if w in narration]
+    if expo_hits:
+        hits.append(f"禁开头⑥ 世界观解说腔（{expo_hits[0]}…）——设定拆进冲突对话与事件")
+    # ⑦ 无事件纯对话：前3段全部对话主导
+    if paras and len(paras) >= OPENING_PARAS and all(para_dialogue_ratio(p) >= 0.6 for p in paras):
+        hits.append("禁开头⑦ 无事件纯对话开场——对话前先给一个动作/异常锚点")
+    # ⑧ 日常流水账：前3段≥3个日常标记
+    routine_n = sum(head.count(w) for w in ROUTINE_MARKERS)
+    if routine_n >= 3:
+        hits.append(f"禁开头⑧ 日常流水账嫌疑（命中{routine_n}个日常标记）——删日常，直入异常事件")
+    # 时间戳+场景铺陈不得占前2段以上（开篇三句入戏条款）：无对话且含铺陈词的段计数
+    filler_paras = 0
+    for p in paras:
+        if para_dialogue_ratio(p) < 0.15 and WEATHER_TIME_OPEN_RE.search(p.lstrip("\u3000")):
+            filler_paras += 1
+    if paras and filler_paras > 2:
+        hits.append("开篇三句入戏：时间/场景铺陈占满前3段——留1段，其余改人物+事件")
+
+    # 前300字手术标准：人物 + 异常
+    person_ok = person_signal(window)
+    anomaly_n = count_hook_signals(window)
+    if not person_ok:
+        hits.append("前300字无人物信号——第一屏必须出现人物（人物+异常手术标准）")
+    if anomaly_n == 0:
+        hits.append("前300字无异常/冲突信号——第一屏必须让读者产生问号（悬念词/危机对话/反常动作）")
+    # 开篇三句入戏：前3段钩子信号≥1
+    hook_n = count_hook_signals(head)
+    if hook_n == 0:
+        hits.append("前3段无钩子信号——开篇三句入戏：冲突动作/危机对话/异动悬念/倒计时面板至少其一")
+
+    if hits:
+        for h in hits:
+            failures.append(f"开篇闸门（第{chapter_index}章·生死线）：{h}")
+        return
+    print(f"[✓] 开篇闸门（第{chapter_index}章·生死线）：禁开头8条 0 命中；前300字人物+异常齐备；"
+          f"前3段钩子信号 {hook_n} 处")
+
+
+# ═══════════════ 对话三症状（第20项，v7.40 警告级机械线索 → AI 语义复核）═══════════════
+LECTURE_MARKERS = ["所谓", "是指", "分为", "共有", "位于", "等级", "境界", "大陆", "王朝", "宗门",
+                   "门派", "体系", "由来", "上古", "洪荒", "灵气", "修为", "律法", "规矩是"]
+JEST_MARKERS = ["哈哈", "笑死", "绝了", "离谱", "牛啊", "666", "梗", "绷不住", "乐了"]
+
+
+def dialogue_symptom_checks(body, lines, span_re, warnings):
+    """对话三症状的机械线索（警告级，给第20项 AI 语义复核供证据，不抢判定）。"""
+    # 症状1 机械问答式对称：连续≥4个对话主导段且长度高度接近
+    ratios = []
+    for p in lines:
+        t = count_chars(p)
+        ratios.append((dialogue_chars(p, span_re) / t if t else 0.0, t))
+    run = []
+    runs = []
+    for r, t in ratios:
+        if r >= 0.5 and t > 0:
+            run.append(t)
+        else:
+            if len(run) >= 4:
+                runs.append(run)
+            run = []
+    if len(run) >= 4:
+        runs.append(run)
+    for seg in runs:
+        if min(seg) / max(seg) >= 0.7:
+            warnings.append(f"对话三症状·机械问答对称嫌疑：连续{len(seg)}段对话长度高度接近"
+                            f"（{min(seg)}-{max(seg)}字）——一问一答字数对等是AI指纹，制造长短差/打断/答非所问")
+            break
+    # 症状2 科普嘴讲设定：长对话段设定名词密度高
+    lectures = []
+    for m in span_re.finditer(body):
+        span = "".join(g for g in m.groups() if g) or m.group(0)
+        if count_chars(span) < 60:
+            continue
+        n = sum(span.count(w) for w in LECTURE_MARKERS)
+        if n >= 2 or (count_chars(span) >= 90 and n >= 1):
+            lectures.append(span.strip()[:24])
+    if lectures:
+        warnings.append(f"对话三症状·科普嘴嫌疑：{len(lectures)}段长对话设定名词密集"
+                        f"（如“{lectures[0]}…”）——设定拆进冲突与代价，不进讲解")
+    # 症状3 不分场合插科打诨
+    jest_n = 0
+    for m in span_re.finditer(body):
+        span = "".join(g for g in m.groups() if g) or m.group(0)
+        if any(w in span for w in JEST_MARKERS):
+            jest_n += 1
+    if jest_n >= 2:
+        warnings.append(f"对话三症状·插科打诨嫌疑：{jest_n}段对话含玩梗/大笑标记——核对场合是否成立（悲壮/危机戏禁用）")
+
 
 def load_text(path):
     # utf-8-sig：BOM 不剥离会使首行 ^锚定失效（TITLE_RE 不命中 → 标题计入正文、
@@ -232,6 +487,8 @@ def ai_lite_score(body, lines):
     维度映射（v7.33 对齐《去AI味》AI味八维）：
       节奏AI味：句长/段长波动低；语言AI味：比喻词密度；情绪AI味：情绪词密度；
       结构AI味：章内 5-gram 自重复率高；解释AI味：平均每段句数过多。
+    v7.40：metrics 附带百分制三维短板（句法/节奏/人味，0-100 越低越要改）与
+    人类分粗测（=(10-score)×10，口径对齐朱雀/墨尺百分制，供定位与复测基线）。
     """
     import statistics
 
@@ -265,6 +522,15 @@ def ai_lite_score(body, lines):
     if dup5_pct >= 2:
         score += 1; reasons.append(f"章内5-gram自重复率{dup5_pct:.1f}%")
     score = min(score, 10)
+    # ── v7.40 百分制三维短板（连续分供定向改写；合成人类分仍由 0-10 口径换算，二者不混用）──
+    one_liners = sum(1 for ln in lines if 0 < count_chars(ln) <= 15)
+    inner_voice = sum(1 for ln in lines
+                      if "“" not in ln and count_chars(ln) > 0 and ln.rstrip('。').endswith(("？", "！")))
+    dim_syntax = _clamp100((sent_sd - 5) / 20 * 100)
+    dim_rhythm = _clamp100(0.55 * ((para_sd - 20) / 80 * 100) + 0.45 * (one_liners / 6 * 100))
+    dim_flavor = _clamp100(0.25 * ((6 - simile_d) / 4 * 100) + 0.25 * ((6 - emo_d) / 4 * 100)
+                           + 0.25 * (inner_voice / 5 * 100) + 0.25 * ((2 - dup5_pct) / 1.5 * 100))
+    dims = {"句法": round(dim_syntax), "节奏": round(dim_rhythm), "人味": round(dim_flavor)}
     return score, reasons, {
         "chars": total,
         "sent_sd": sent_sd,
@@ -273,7 +539,27 @@ def ai_lite_score(body, lines):
         "emotion_per_k": emo_d,
         "avg_sentences_per_paragraph": avg_sents_per_para,
         "dup5_pct": round(dup5_pct, 2),
+        "one_liners": one_liners,
+        "inner_voice": inner_voice,
+        "dims": dims,
+        "human_score": (10 - score) * 10,
     }
+
+
+DIM_GATE_HINTS = {
+    "句法": "Gate B 拆书面句式、制造长短差",
+    "节奏": "Gate D 长短句对比/单句成段重音",
+    "人味": "Gate E 对话口头禅/打断/改口 + Gate H 情绪换动作",
+}
+
+
+def weak_dim_hint(dims, floor=40):
+    """短板维度提示（<floor 的维度按分值升序列出，附 Gate 定向改写建议）。"""
+    weak = [(k, v) for k, v in sorted(dims.items(), key=lambda kv: kv[1]) if v < floor]
+    if not weak:
+        return ""
+    parts = [f"{k}({v})→{DIM_GATE_HINTS[k]}" for k, v in weak]
+    return "短板维度：" + "；".join(parts)
 
 
 def ai_lite_check(path):
@@ -288,18 +574,27 @@ def ai_lite_check(path):
         return 2
     lines, _ = body_lines(text)
     score, reasons, metrics = ai_lite_score("\n".join(lines), lines)
+    dims = metrics["dims"]
     print(f"[i] AI味粗测 = {score}/10（越高越需要人工过目）")
-    print(f"[i] 字数={metrics['chars']}；句长波动={metrics['sent_sd']:.1f}；段长波动={metrics['para_sd']:.1f}")
-    print(f"[i] 比喻词密度={metrics['simile_per_k']:.1f}/千字；情绪词密度={metrics['emotion_per_k']:.1f}/千字；平均每段={metrics['avg_sentences_per_paragraph']:.1f}句")
+    print(f"[i] 人类分(粗测) = {metrics['human_score']}/100（口径对齐朱雀/墨尺：≥90 达标 / 80-89 警告 / "
+          f"<80 需改写；本地启发式，定位与复测基线用）")
+    print(f"[i] 维度分（0-100，越低越要改）：句法 {dims['句法']} | 节奏 {dims['节奏']} | 人味 {dims['人味']}")
+    print(f"[i] 字数={metrics['chars']}；句长波动={metrics['sent_sd']:.1f}；段长波动={metrics['para_sd']:.1f}；"
+          f"单句成段={metrics['one_liners']}；无引号内心戏={metrics['inner_voice']}")
+    print(f"[i] 比喻词密度={metrics['simile_per_k']:.1f}/千字；情绪词密度={metrics['emotion_per_k']:.1f}/千字；"
+          f"平均每段={metrics['avg_sentences_per_paragraph']:.1f}句；5-gram自重复率={metrics['dup5_pct']}%")
     if reasons:
         print("[!] 触发指标：" + "；".join(reasons))
-    else:
+    hint = weak_dim_hint(dims)
+    if hint:
+        print(f"[!] {hint}")
+    if not reasons and not hint:
         print("[✓] 未触发当前启发式指标")
     print("[i] 这是本地启发式初筛，不替代墨尺或朱雀的模型结论。")
     return 0
 
 
-def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT, wall_hard=None, wall_warn=None):
+def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, dialog_max=DIALOG_MAX_DEFAULT, wall_hard=None, wall_warn=None, chapter_index=None):
     if wall_hard is None:
         wall_hard = config.WALL_HARD  # 延迟绑定：支持运行时覆盖（v7.34 config 传播）
     if wall_warn is None:
@@ -346,6 +641,18 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
             print(f"[✓] 章节名「{title}」= {t_len} 字（{TITLE_MIN}-{TITLE_MAX} 区间，非黑名单）")
     else:
         warnings.append("未检测到章节标题行（第N章 XXX）——长篇落盘约定必须有；短篇单文件（正文.md）可忽略本条")
+
+    # ── 0 前3章开篇闸门（v7.40，黄金开篇铁律：推荐位生死线）──
+    if chapter_index is not None and 1 <= chapter_index <= OPENING_GATE_CHAPTERS:
+        opening_gate(body, lines, dialogue_span_re(quote_mode), chapter_index, failures, warnings)
+        task_maps = {
+            1: "主角出场 + 异常事件/核心冲突亮相 + 金手指或悬念露头（AI 语义核验）",
+            2: "金手指第一次小规模演示 + 近期目标确立 + 第一个爽点或打脸预告（AI 语义核验）",
+            3: "第一个完整爽点闭环（打脸/收益），读者拿到第一次满足（AI 语义核验）",
+        }
+        print(f"[i] 前三章任务表（第{chapter_index}章）：{task_maps[chapter_index]}")
+    elif chapter_index is not None and chapter_index > OPENING_GATE_CHAPTERS:
+        print(f"[i] 第{chapter_index}章 > 前{OPENING_GATE_CHAPTERS}章，开篇闸门未启用")
 
     # ── 1 字数 ──
     total = count_chars(body)
@@ -495,6 +802,9 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
     elif pronoun_tags:
         print(f"[i] 「他/她说：」类引导 {len(pronoun_tags)} 次（≤2 容许）: " + "、".join(pronoun_tags[:4]))
 
+    # ── 警告级：对话三症状机械线索（v7.40，供第20项 AI 语义复核取证）──
+    dialogue_symptom_checks(body, lines, span_re, warnings)
+
     # ── 警告级：高频二字词近距离复用 ──
     hanzi_only = "".join(ch for ch in body if HANZI.match(ch))
     grams = Counter(hanzi_only[i:i + 2] for i in range(len(hanzi_only) - 1))
@@ -503,11 +813,19 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
     if hot:
         warnings.append("高频词疑似复用: " + "、".join(f"「{w}」×{n}" for w, n in hot) + "——查是否同词近距离重复")
 
-    # ── 信息级：AI味指数（粗测，0-10，越高越要人工过目）──
-    score, reasons, _ = ai_lite_score(body, lines)
+    # ── 信息级：AI味指数（粗测，0-10，越高越要人工过目）+ 百分制三维（v7.40）──
+    score, reasons, ai_metrics = ai_lite_score(body, lines)
     print(f"[i] AI味指数(粗测) = {score}/10" + ("：" + "；".join(reasons) if reasons else "，机器指标均正常"))
+    _dims = ai_metrics["dims"]
+    _sample_note = "（样本<800字，三维仅供参考）" if ai_metrics["chars"] < 800 else ""
+    print(f"[i] 人类分(粗测) = {ai_metrics['human_score']}/100（句法{_dims['句法']}/节奏{_dims['节奏']}/人味{_dims['人味']}，"
+          f"≥90 达标 / 80-89 警告 / <80 需改写）{_sample_note}")
     if score >= AI_SCORE_HARD_MAX:
         failures.append(f"AI味指数 {score}/10 ≥ {AI_SCORE_HARD_MAX}（按《去AI味》8 Gate 定向改写后重测）")
+    else:
+        _hint = weak_dim_hint(_dims)
+        if _hint:
+            print(f"[!] {_hint}")
 
     print("-" * 46)
     for w in warnings:
@@ -530,24 +848,47 @@ def main():
         epilog="--quote 决定引号违规检测与对话占比统计用哪套引号，二者同源；"
                "--dialog-min/--dialog-max 默认 15/50（v7.19 热榜实证 10-49%%；>=55 剧本口径自动豁免上限）。")
     ap.add_argument("file")
-    ap.add_argument("--min", type=int, default=DEFAULT_CHAPTER_MIN, help=f"字数下限（默认{DEFAULT_CHAPTER_MIN}）")
-    ap.add_argument("--max", type=int, default=DEFAULT_CHAPTER_MAX, help=f"字数上限（默认{DEFAULT_CHAPTER_MAX}）")
+    ap.add_argument("--min", type=int, default=None, help=f"字数下限（默认{DEFAULT_CHAPTER_MIN}；--platform 预设可整体切换）")
+    ap.add_argument("--max", type=int, default=None, help=f"字数上限（默认{DEFAULT_CHAPTER_MAX}；--platform 预设可整体切换）")
     ap.add_argument("--quote", choices=QUOTE_MODES, default="chal",
                     help="引号口径：chal(默认,中文弯引号) / straight(半角双引号,短篇) / any(容错)")
-    ap.add_argument("--dialog-min", type=int, default=DIALOG_MIN_DEFAULT, dest="dialog_min",
-                    help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查）")
-    ap.add_argument("--dialog-max", type=int, default=DIALOG_MAX_DEFAULT, dest="dialog_max",
-                    help="对话占比上限%%（默认50，热榜实证；传0关闭）")
+    ap.add_argument("--dialog-min", type=int, default=None, dest="dialog_min",
+                    help="对话占比硬卡下限%%（默认15；15-25警告；短剧剧本传60，>=55时自动豁免上限检查；--platform 预设可整体切换）")
+    ap.add_argument("--dialog-max", type=int, default=None, dest="dialog_max",
+                    help="对话占比上限%%（默认50，热榜实证；传0关闭；--platform 预设可整体切换）")
+    ap.add_argument("--platform", choices=sorted(config.PLATFORM_PRESETS), default=None,
+                    help="平台预设（v7.40）：fanqie默认/qidian/jinjiang/qimao/zongheng/feilu——切字数带与对话区间，"
+                         "取值真源=references/平台参数表.md；显式 --min/--max/--dialog-* 优先于预设")
     ap.add_argument("--wall", type=int, default=WALL_HARD, dest="wall_hard",
                     help=f"文字墙硬卡阈值%%（默认{WALL_HARD}=config真源；说书体/古言等长段题材经书格传 200）")
     ap.add_argument("--wall-warn", type=int, default=WALL_WARN, dest="wall_warn",
                     help=f"长段警告阈值%%（默认{WALL_WARN}；须小于 --wall）")
     ap.add_argument("--ai-lite", action="store_true",
-                    help="只跑零依赖 AI 味粗测，不执行完整章节硬卡")
+                    help="只跑零依赖 AI 味粗测（百分制人类分+句法/节奏/人味三维短板），不执行完整章节硬卡")
+    ap.add_argument("--chapter-index", type=int, default=None, dest="chapter_index",
+                    help=f"章节序号（1起）。N≤{OPENING_GATE_CHAPTERS} 启用前3章开篇闸门（禁开头8条+前300字人物异常+前3段钩子）；"
+                         f"未传参时自动从标题行「第N章」推断")
     args = ap.parse_args()
     if args.ai_lite:
         sys.exit(ai_lite_check(args.file))
-    sys.exit(check(args.file, args.min, args.max, args.quote, args.dialog_min, args.dialog_max, args.wall_hard, args.wall_warn))
+    # 参数优先级（v7.40）：显式 --min/--max/--dialog-* > --platform 预设 > config 默认
+    preset = config.PLATFORM_PRESETS.get(args.platform or "", {})
+    wmin = args.min if args.min is not None else preset.get("chapter_min", DEFAULT_CHAPTER_MIN)
+    wmax = args.max if args.max is not None else preset.get("chapter_max", DEFAULT_CHAPTER_MAX)
+    dmin = args.dialog_min if args.dialog_min is not None else preset.get("dialog_min", DIALOG_MIN_DEFAULT)
+    dmax = args.dialog_max if args.dialog_max is not None else preset.get("dialog_max", DIALOG_MAX_DEFAULT)
+    if args.platform:
+        print(f"[i] 平台预设 {args.platform}：字数 {wmin}-{wmax}，对话 {dmin}-{dmax}（真源=references/平台参数表.md）")
+    idx = args.chapter_index
+    if idx is None:
+        try:
+            text_for_idx = load_text(args.file)
+        except OSError:
+            text_for_idx = ""
+        idx = infer_chapter_index(text_for_idx)
+        if idx is not None and 1 <= idx <= OPENING_GATE_CHAPTERS:
+            print(f"[i] 未传 --chapter-index，已从标题行推断为第{idx}章，启用开篇闸门")
+    sys.exit(check(args.file, wmin, wmax, args.quote, dmin, dmax, args.wall_hard, args.wall_warn, idx))
 
 
 if __name__ == "__main__":

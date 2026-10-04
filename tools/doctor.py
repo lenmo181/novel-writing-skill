@@ -13,6 +13,7 @@ import ast
 import contextlib
 import io
 import json
+import re
 import sys
 import subprocess
 import tempfile
@@ -164,6 +165,90 @@ def _check(label: str, ok: bool, detail: str, fix: str = "") -> dict:
     return {"label": label, "ok": bool(ok), "detail": detail, "fix": fix}
 
 
+# 目录树登记完整性（v7.40）：仓库基础设施与运行产物不要求登记
+# 豁免范围与上架包一致（build_market_zip.py）：tests/ 与仓库基础设施文件不随技能包分发
+TREE_EXCLUDED_PARTS = {".git", ".github", ".workbuddy", ".v2c", ".video_agent",
+                       ".playwright-cli", "dist", "out", "__pycache__", "tests"}
+TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "交流群二维码.png"}
+TREE_TREE_LINE_RE = re.compile(r"^[│\s]*[├└]──\s*(.+)$")
+
+
+def parse_skill_tree(skill_text: str) -> tuple[set, set]:
+    """解析 SKILL.md「技能目录结构」树，返回 (登记文件相对路径集合, 免登记目录集合)。
+
+    以 `/` 结尾且未列任何子项的目录（如 versions/ 存档）视为免登记目录；
+    列了子项的目录（tools/ references/ …）其子项必须逐个登记。
+    """
+    registered: set = set()
+    dir_entries: list = []
+    current_dir = ""
+    in_section = False
+    in_block = False
+    for line in skill_text.splitlines():
+        stripped = line.strip()
+        if not in_section:
+            if "技能目录结构" in line:
+                in_section = True
+            continue
+        if stripped.startswith("```"):
+            if not in_block:
+                in_block = True
+                continue
+            break  # 收尾围栏：树结束
+        if not in_block:
+            continue
+        m = TREE_TREE_LINE_RE.match(line)
+        if not m:
+            continue
+        entry = m.group(1).split("#", 1)[0].strip().rstrip()
+        if not entry:
+            continue
+        if entry.endswith("/"):
+            current_dir = entry
+            dir_entries.append(entry)
+            continue
+        if "/" in entry:  # 顶层内联路径（如 templates/项目模板.md）
+            registered.add(entry)
+        else:
+            registered.add(f"{current_dir}{entry}")
+    exempt = {d for d in dir_entries if not any(r.startswith(d) for r in registered)}
+    return registered, exempt
+
+
+def tree_registry_report(root: Path, skill_text: str) -> dict:
+    """比对目录树登记与磁盘实际文件：防「手册已写、认知树里没有」的自指盲区。"""
+    registered, exempt = parse_skill_tree(skill_text)
+    on_disk: set = set()
+    for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if not path.is_file():
+            continue
+        parts = rel.parts
+        if any(p in TREE_EXCLUDED_PARTS or p.startswith(".") for p in parts[:-1]) or parts[-1].startswith("."):
+            continue
+        if rel.as_posix() in TREE_EXCLUDED_FILES:
+            continue
+        if any(rel.as_posix().startswith(d) for d in exempt):
+            continue
+        on_disk.add(rel.as_posix())
+    unregistered = sorted(on_disk - registered)
+    phantom = sorted(registered - on_disk)
+    ok = not unregistered and not phantom
+    bits = []
+    if unregistered:
+        shown = "、".join(unregistered[:6]) + (" 等" if len(unregistered) > 6 else "")
+        bits.append(f"未登记 {len(unregistered)} 个文件（{shown}）")
+    if phantom:
+        bits.append(f"登记但不存在 {len(phantom)} 个（{'、'.join(phantom[:4])}）")
+    detail = f"登记 {len(registered & on_disk)}/{len(on_disk)}，全部一致" if ok else "；".join(bits)
+    return _check(
+        "目录树登记完整性",
+        ok,
+        detail,
+        "在 SKILL.md「技能目录结构」补齐缺失文件，或把存档类目录改为「目录/ + 注释」式免登记条目" if not ok else "",
+    )
+
+
 def audit(root: Path = ROOT) -> dict:
     """返回可供人读或机器消费的自检报告。"""
     root = Path(root).expanduser().resolve()
@@ -241,6 +326,9 @@ def audit(root: Path = ROOT) -> dict:
         ref_detail,
         "运行 python tools/check_refs.py 查看具体悬空路径" if not refs_ok else "",
     ))
+
+    if skill_text:
+        checks.append(tree_registry_report(root, skill_text))
 
     return {
         "version": SKILL_VERSION,

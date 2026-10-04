@@ -191,7 +191,7 @@ class RuleDocs(unittest.TestCase):
     def test_version(self):
         from config import SKILL_VERSION, RELEASE_DATE
         self.assertRegex(SKILL_VERSION, r"^\d+\.\d+$")
-        self.assertEqual(RELEASE_DATE, "2026-09-30")
+        self.assertEqual(RELEASE_DATE, "2026-10-04")
         self.assertIn(f"v{SKILL_VERSION}", self.skill.split("## 📚 版本历史", 1)[0])
 
     def test_constants_code_consistency(self):

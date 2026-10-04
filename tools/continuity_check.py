@@ -135,6 +135,48 @@ def check_reviews(root, chapters, issues):
         add_issue(issues, "low", "REVIEW_MISSING", "mind/回顾/", f"缺少单章回顾：{missing[:20]}")
 
 
+def check_expectations(root, chapters, issues):
+    """期待线台账核验（v7.40）：活跃期待线跨章无推进 = 悬空，告警交语义复核。
+
+    台账格式（mind/期待线.md，四型登记）：
+    | 线名 | 类型 | 建立章 | 最近推进章 | 状态 |
+    类型 ∈ 打脸预告/身份悬念/目标牵引/危机倒计时；状态 ∈ 活跃/已兑现/已放弃。
+    """
+    path = root / "mind" / "期待线.md"
+    latest = max((row["num"] for row in chapters), default=0)
+    if not path.is_file():
+        if latest >= 5:
+            add_issue(issues, "low", "EXPECTATION_NO_LEDGER", "mind/期待线.md",
+                      "尚无期待线台账（v7.40）：第4章起建议登记四型期待线，供连续性核验")
+        return
+    valid_types = ("打脸预告", "身份悬念", "目标牵引", "危机倒计时")
+    for index, line in enumerate(text(path).splitlines(), 1):
+        if not line.strip().startswith("|") or re.match(r"^\s*\|?\s*-+", line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or not cells[0] or cells[0] in ("线名", "---"):
+            continue
+        name, etype, status = cells[0], cells[1], cells[4]
+        if etype and etype not in valid_types:
+            add_issue(issues, "low", "EXPECTATION_TYPE", f"mind/期待线.md:{index}",
+                      f"期待线「{name}」类型「{etype}」不在四型白名单")
+        if status and status not in ("活跃", "已兑现", "已放弃", "-"):
+            add_issue(issues, "low", "EXPECTATION_STATUS", f"mind/期待线.md:{index}",
+                      f"期待线「{name}」状态「{status}」不在白名单（活跃/已兑现/已放弃）")
+        if status != "活跃":
+            continue
+        pushed = CHAPTER_NUM_RE.search(cells[3])
+        if not pushed:
+            add_issue(issues, "low", "EXPECTATION_NO_PUSH", f"mind/期待线.md:{index}",
+                      f"活跃期待线「{name}」缺最近推进章字段")
+            continue
+        gap = latest - int(pushed.group(1))
+        if gap > EXPECTATION_STALE_CHAPTERS:
+            add_issue(issues, "medium", "EXPECTATION_STALE", f"mind/期待线.md:{index}",
+                      f"期待线「{name}」已 {gap} 章未推进（>{EXPECTATION_STALE_CHAPTERS} 章悬空）——"
+                      f"推进、兑现或显式放弃，不许默默忘掉")
+
+
 def check(root: Path):
     issues = []
     chapters = chapter_files(root)
@@ -143,6 +185,7 @@ def check(root: Path):
     check_foreshadows(root, issues)
     check_toc_titles(root, chapters, issues)
     check_reviews(root, chapters, issues)
+    check_expectations(root, chapters, issues)
     return {
         "version": SKILL_VERSION,
         "root": str(root),

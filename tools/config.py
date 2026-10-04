@@ -8,9 +8,9 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.39"
+SKILL_VERSION = "7.40"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
-RELEASE_DATE = "2026-09-30"
+RELEASE_DATE = "2026-10-04"
 
 SKILLHUB_SLUG = "@user_cd8383ec/web-novel-writing"
 SKILLHUB_DOWNLOAD_URL = (
@@ -34,6 +34,26 @@ DEFAULT_DIFF_DELETE_WARN = 0.10
 
 TITLE_MIN = 2
 TITLE_MAX = 12
+
+# 前3章开篇闸门（v7.40；真源=常量表·三C，《写作铁律.md·黄金开篇铁律》）
+OPENING_GATE_CHAPTERS = 3   # 第 N≤3 章启用开篇专项
+OPENING_WINDOW_CHARS = 300  # 「前300字手术标准」检测窗口（可计数字符）
+OPENING_PARAS = 3           # 「开篇三句入戏」检测段数（前3段钩子信号≥1）
+
+# 平台参数预设（v7.40；人读真源=references/平台参数表.md，含证据等级）
+# 只收脚本可执行的硬参数：字数带与对话区间；章名/付费节点/封面属人读字段。
+PLATFORM_PRESETS = {
+    "fanqie": {"chapter_min": 2000, "chapter_max": 2500, "dialog_min": 15, "dialog_max": 50},
+    "qidian": {"chapter_min": 2000, "chapter_max": 4000, "dialog_min": 15, "dialog_max": 50},
+    "jinjiang": {"chapter_min": 2000, "chapter_max": 3000, "dialog_min": 20, "dialog_max": 55},
+    "qimao": {"chapter_min": 2000, "chapter_max": 2500, "dialog_min": 15, "dialog_max": 50},
+    "zongheng": {"chapter_min": 2500, "chapter_max": 3500, "dialog_min": 12, "dialog_max": 45},
+    "feilu": {"chapter_min": 2000, "chapter_max": 3000, "dialog_min": 20, "dialog_max": 55},
+}
+PLATFORM_ALIASES = {
+    "番茄": "fanqie", "起点": "qidian", "晋江": "jinjiang",
+    "七猫": "qimao", "纵横": "zongheng", "飞卢": "feilu",
+}
 
 # 文字墙（v7.34 收敛为唯一真源；题材/书格例外经 check_chapter.py --wall 覆盖）
 WALL_HARD = 140          # > 140 硬卡

@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 
+from config import SKILL_VERSION
+
 def load_mod(name):
     spec = importlib.util.spec_from_file_location(name, TOOLS / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
@@ -64,7 +66,7 @@ class TestV739Hardening(unittest.TestCase):
             self.assertEqual(doc["version"], "7.38")
             self.assertEqual(rr.set_status(root, "FR-01-001", "fixed"), 0)
             saved = json.loads(queue.read_text(encoding="utf-8"))
-            self.assertEqual(saved["version"], "7.39")
+            self.assertEqual(saved["version"], SKILL_VERSION)
             self.assertEqual(saved["issues"][0]["status"], "fixed")
 
     def test_mechanical_issue_routes_to_scoped_repair(self):
@@ -153,7 +155,7 @@ class TestV739Hardening(unittest.TestCase):
             import hashlib
             digest = hashlib.sha256((root / "书稿" / "第001章_测试.md").read_bytes()).hexdigest()
             (root / "mind" / "审校" / "第001章审校.json").write_text(
-                json.dumps({"version": "7.39", "chapter": 1, "chapter_sha256": digest, "checks": checks}, ensure_ascii=False),
+                json.dumps({"version": SKILL_VERSION, "chapter": 1, "chapter_sha256": digest, "checks": checks}, ensure_ascii=False),
                 encoding="utf-8")
             result = cr.semantic_gate(root, 1)
             self.assertTrue(result["ok"])

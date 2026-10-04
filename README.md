@@ -4,21 +4,21 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.39**（2026-09-30）
+> **当前版本：v7.40**（2026-10-04）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
 
-## v7.39 本轮升级重点
+## v7.40 本轮升级重点
 
-- 修复全文修复编排器隐式写入风险：正文机械写入必须显式 `--apply`。
-- 修复队列修复“全书横扫”问题，只处理队列明确命中的章节。
-- 新增 Canonical Parser，统一角色状态快照解析，减少跨工具口径漂移。
-- 修复 `--limit 0` 与混合缓冲节奏的真实漏检。
-- 新增第14-30项语义证据 Gate，正式交付可机器验证。
-- 发布副本比对扩展为 runtime 目录全量 parity。
+- 前3章开篇闸门：`check_chapter.py --chapter-index N`，N≤3 硬卡黄金开篇铁律（禁开头8条、前300字人物+异常、前3段钩子信号）。
+- `--ai-lite` 升级为百分制人类分粗测，对齐朱雀/墨尺档位，并给出三维短板与定向 Gate 建议。
+- 对话三症状（机械问答对称/科普嘴/玩梗密度）接入机械检测，告别纯 AI 语义判定的执行衰减。
+- 主文件瘦身：写作规则外置《写作铁律》，版本历史外置 `versions/CHANGELOG.md` 唯一真源。
+- 新增《平台参数表》与 `check_chapter.py --platform` 预设；期待线台账与悬空期待线告警。
+- 新增 `tools/export_assistant_txt.py`：合并 书稿/ 为作家助手「本地导入」单文件 txt。
 
 ## 这是什么
 
@@ -515,7 +515,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.39**
+当前版本：**v7.40**
 
 历史版本：[versions/](versions/)
 
@@ -523,6 +523,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.40**：前3章开篇闸门、ai-lite 百分制、对话三症状机械检测、平台参数表、期待线台账、主文件瘦身与版本历史外置。
 - **v7.39**：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate、runtime 全量 parity 与回归补盲。
 - **v7.38**：Apache 2.0 许可证、NOTICE、安全/贡献/仓库配置、CI 发布门和回归治理。
 - **v7.37**：章节交付 Gate、全文修复编排、项目审计日志、轻量记忆检索、JSON Schema。

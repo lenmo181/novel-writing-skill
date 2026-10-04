@@ -6,17 +6,19 @@
 """
 import os, re, shutil, zipfile, subprocess, sys
 
-ROOT = r"C:\Users\lenmo\Desktop\网络小说创作技能"
+# 以脚本所在仓库为根，保证包内容与当前源码版本一致
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SKILL_NAME = "网络小说创作技能"
-VER = "7.34.0"
-STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.34")
+VER = "7.40.0"
+STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.40")
 STAGE = os.path.join(STAGE_ROOT, SKILL_NAME)
 DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
-                ".idea", ".vscode", ".playwright-cli", "dist", "out", "tests"}
-EXCLUDE_FILES = {".gitignore", "LICENSE", "Thumbs.db", ".DS_Store"}
+                ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests"}
+EXCLUDE_FILES = {".gitignore", "LICENSE", "Thumbs.db", ".DS_Store",
+                 ".editorconfig", ".gitattributes", "NOTICE", "CONTRIBUTING.md", "SECURITY.md"}
 EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXT = {".md", ".py", ".txt", ".json", ".yaml", ".yml", ".sh", ".html",
             ".js", ".ts", ".css", ".csv", ".bat", ".ps1"}

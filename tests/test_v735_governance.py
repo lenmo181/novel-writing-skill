@@ -83,7 +83,7 @@ class TestGovernanceSchemas(unittest.TestCase):
     def test_runtime_manifest_covers_all_reference_manuals(self):
         manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
         rows = [x for x in manifest.splitlines() if x.startswith("| references/")]
-        actual = {str(p.relative_to(ROOT)) for p in (ROOT / "references").glob("*.md")}
+        actual = {p.relative_to(ROOT).as_posix() for p in (ROOT / "references").glob("*.md")}
         listed = {x.split("|")[1].strip() for x in rows}
         self.assertEqual(listed, actual)
         self.assertTrue(rows)
@@ -94,7 +94,7 @@ class TestReleaseVersion(unittest.TestCase):
     def test_config_and_skill(self):
         from config import SKILL_VERSION, RELEASE_DATE
         self.assertRegex(SKILL_VERSION, r"^\d+\.\d+$")
-        self.assertEqual(RELEASE_DATE, "2026-09-30")
+        self.assertEqual(RELEASE_DATE, "2026-10-04")
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(f"v{SKILL_VERSION}", skill.split("## 📚 版本历史", 1)[0])

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.39）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.40）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -225,20 +225,21 @@ def main() -> int:
         if value not in const_text:
             fail(errors, f"常量表未记载 config 值 {name}={value}（真源漂移）")
 
-    # 3) 工具映射：常量表引用的 tools/*.py 必须存在
-    for m in set(re.findall(r"tools/([a-z_]+\.py)", const_text)):
-        if not (ROOT / "tools" / m).is_file():
-            fail(errors, f"常量表引用的工具不存在：tools/{m}")
+    # 3) 工具映射：常量表引用的 tools/*.py 必须存在（上架包布局为 scripts/，两者任一命中即可）
+    for m in set(re.findall(r"(?:tools|scripts)/([a-z_]+\.py)", const_text)):
+        if not ((ROOT / "tools" / m).is_file() or (ROOT / "scripts" / m).is_file()):
+            fail(errors, f"常量表引用的工具不存在：{m}")
 
-    # 4) 测试映射：治理回归测试必须存在
-    for tf in ("test_v733_upgrade.py", "test_v734_governance.py", "test_v735_governance.py", "test_v736_governance.py"):
-        if not (ROOT / "tests" / tf).is_file():
-            fail(errors, f"治理测试缺失：tests/{tf}")
+    # 4) 测试映射：治理回归测试必须存在（tests/ 不随技能包分发，包环境跳过）
+    if (ROOT / "tests").is_dir():
+        for tf in ("test_v733_upgrade.py", "test_v734_governance.py", "test_v735_governance.py", "test_v736_governance.py"):
+            if not (ROOT / "tests" / tf).is_file():
+                fail(errors, f"治理测试缺失：tests/{tf}")
 
     # 5) 运行时手册版本台账：实际 references/*.md 必须全部登记且统一指向当前版本。
     manifest_path = "references/版本台账.md"
     manifest = read(manifest_path)
-    actual_manuals = {str(p.relative_to(ROOT)) for p in (ROOT / "references").glob("*.md")}
+    actual_manuals = {p.relative_to(ROOT).as_posix() for p in (ROOT / "references").glob("*.md")}
     manifest_rows = re.findall(r"^\| (references/[^|]+\.md) \| (v\d+\.\d+(?:\.\d+)?) \| ([^|]+) \|$", manifest, re.M)
     manifest_paths = [row[0] for row in manifest_rows]
     if not manifest:
