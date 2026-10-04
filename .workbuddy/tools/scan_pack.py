@@ -2,7 +2,8 @@
 """技能包上架前体检：体积/结构/敏感信息/引用完整性"""
 import os, re, sys, json
 
-ROOT = r"C:\Users\lenmo\Desktop\网络小说创作技能"
+import os as _os
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 SKIP_DIRS = {".workbuddy", "__pycache__", ".git"}
 
 files = []
