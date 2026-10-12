@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.43）：默认工程 Gate + 可验证语义 Gate。"""
+"""章节交付 Gate（v7.44）：默认工程 Gate + 可验证语义 Gate。"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -13,6 +13,8 @@ from config import SKILL_VERSION
 TOOLS = Path(__file__).resolve().parent
 SEMANTIC_DIR = Path("mind") / "审校"
 SEMANTIC_CHECKS = list(range(14, 31))
+# v7.44：weak = 未经 AI 语义复核的机械弱证据档
+VALID_SEMANTIC_STATUS = {"pass", "warn", "revise", "blocked", "weak"}
 
 def run_gate(name, command, cwd):
     try:
@@ -61,25 +63,36 @@ def semantic_gate(root, chapter):
     missing = []
     invalid = []
     failed = []
+    weak = []
     for number in SEMANTIC_CHECKS:
         item = checks.get(str(number), checks.get(number))
         if not isinstance(item, dict):
             missing.append(str(number))
             continue
         status = item.get("status")
-        if not isinstance(status, str) or status not in {"pass", "warn", "revise", "blocked"}:
+        if not isinstance(status, str) or status not in VALID_SEMANTIC_STATUS:
             invalid.append(str(number))
         if isinstance(status, str) and status in {"revise", "blocked"}:
             failed.append(number)
+        # v7.44 弱证据档：AI 语义复核不可用时用机械证据兜底，不卡死 Gate，
+        # 但会拉低 semantic_strength 并让 delivery_ready=False——可继续写，不可当交付结论。
+        if isinstance(status, str) and status == "weak":
+            weak.append(number)
         evidence = item.get("evidence")
         if not isinstance(evidence, str) or not evidence.strip():
             invalid.append(f"{number}:evidence")
+    tail_extra = {}
     if missing:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"缺少语义校验项：{chr(44).join(missing)}"]}
     if invalid:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"语义记录缺少合法 evidence/status：{chr(44).join(invalid[:8])}"]}
     if failed:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"存在未解决语义项：{chr(44).join(map(str, failed))}"]}
+    if weak:
+        return {"name": "30项语义证据", "ok": True, "exit_code": 0, "weak": weak,
+                "tail": [f"第14-30项均有 status + evidence，其中 {len(weak)} 项为 weak 弱证据"
+                         f"（{chr(44).join(map(str, weak[:8]))}）：未经 AI 语义复核，Gate 不卡死，"
+                         "但 delivery_ready=false，不可作为正式交付结论"]}
     return {"name": "30项语义证据", "ok": True, "exit_code": 0, "tail": [f"第14-30项共{len(SEMANTIC_CHECKS)}项均有 status + evidence"]}
 
 def assess(root, chapter, full=False, with_semantic=True):
@@ -98,12 +111,16 @@ def assess(root, chapter, full=False, with_semantic=True):
         gates.append(semantic_gate(root, chapter))
     if full:
         gates.append(run_gate("全文审稿", [sys.executable, str(TOOLS / "full_review.py"), str(root), "--strict", "--json", "--no-write"], root))
+    weak_items = sorted({n for g in gates for n in g.get("weak", [])})
     return {"version": SKILL_VERSION, "project": str(root), "chapter": chapter,
             "target": str(target.relative_to(root)), "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "semantic_required": with_semantic,
+            "semantic_strength": "weak" if weak_items else ("full" if with_semantic else "skipped"),
+            "weak_checks": weak_items,
             "semantic_record": str(semantic_path(root, chapter).relative_to(root)) if with_semantic else None,
             "gates": gates, "ok": all(g["ok"] for g in gates),
-            "delivery_ready": with_semantic and all(g["ok"] for g in gates), "input_error": False}
+            "delivery_ready": with_semantic and all(g["ok"] for g in gates) and not weak_items,
+            "input_error": False}
 
 def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
@@ -139,13 +156,21 @@ def render(report):
     ]
     for gate in report["gates"]:
         lines.append(f"| {gate['name']} | {'PASS' if gate['ok'] else 'REVISE'} | {gate['exit_code']} |")
+    weak_items = report.get("weak_checks") or []
     lines += [
         "",
+        "- 语义强度：" + ("full（全部经语义审校）" if report.get("semantic_strength") == "full" else
+                       f"weak（{len(weak_items)} 项未经 AI 语义复核：{chr(44).join(map(str, weak_items))}）"
+                       if report.get("semantic_strength") == "weak" else "skipped（--skip-semantic）"),
+        "",
         "结论：" + ("PASS，可进入交付/作者验收。" if report.get("delivery_ready") else
+                    "PASS（弱证据）：Gate 不卡死，可继续写作；但有语义项未经 AI 复核，需人工过目，"
+                    "不可作为正式交付结论。" if report["ok"] and report.get("semantic_strength") == "weak" else
                     "草稿工程检查通过；未执行语义 Gate，不可作为正式交付结论。" if report["ok"] else
                     "REVISE，先处理失败 Gate。"),
         "",
         "语义 Gate 需要第14-30项逐项 evidence；本工具只验证记录完整性，不代替作者/AI做文学判断。",
+        "weak 档由机械证据兜底产生（`review_skeleton.py --status weak`），AI 可用时应回填为 pass/warn/revise。",
         "失败 Gate 的详细输出已保留在 JSON 报告中；本工具不修改正文。",
     ]
     return "\n".join(lines)

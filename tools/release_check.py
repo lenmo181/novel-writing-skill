@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""发布前只读预检（v7.43）。
+"""发布前只读预检（v7.44）。
 
 运行技能自检、评测矩阵、lint、引用检查和可选回归测试；
 可额外比对本地安装副本。不会上传 SkillHub，也不会替换任何文件。
@@ -157,10 +157,11 @@ def audit(root: Path = ROOT, installed: Optional[Path] = None, include_tests: bo
     tag = git_tag_check(root)
     if tag["ok"]:
         warnings.append({"name": tag["name"], "detail": tag["detail"]})
+    elif strict:
+        checks.append({"name": tag["name"], "ok": False, "exit_code": tag["exit_code"],
+                       "tail": [tag["detail"]]})
     else:
-        (checks if strict else warnings).append(
-            {"name": tag["name"], "exit_code": tag["exit_code"], "tail": [tag["detail"]]}
-            if strict else {"name": tag["name"], "detail": tag["detail"]})
+        warnings.append({"name": tag["name"], "detail": tag["detail"]})
     checks.append(dist_package_check(root, SKILL_VERSION))
 
     return {"version": SKILL_VERSION, "root": str(root), "ok": all(item["ok"] for item in checks),

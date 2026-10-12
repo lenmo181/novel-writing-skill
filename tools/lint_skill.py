@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.43）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.44）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -232,6 +232,38 @@ def main() -> int:
                 fail(errors, f"核心校验映射引用不存在的规则台账ID：第{num}项→{rid}")
     if sorted(map_nums) != list(range(1, 31)):
         fail(errors, f"核心校验映射必须覆盖1-30且各一次：{sorted(map_nums)}")
+
+    # 1c) 观察期到期（v7.44）：候选/实验态规则不能无限期挂着。
+    # 观察起点只取「最近」列（cells[4]）——「来源」列是首次发现版本，不代表最近一次裁定，
+    # 拿它当起点会把「已延长」的条目误报。最近列没有版本号（只有轮次号 R7 等）的条目不误报。
+    def _minor(ver: str):
+        try:
+            major, minor = ver.split(".")
+            return int(major), int(minor)
+        except (ValueError, AttributeError):
+            return None
+
+    cur = _minor(SKILL_VERSION)
+    stale_observations = []
+    if cur:
+        for r in rb_rows:
+            cells = [c.strip() for c in r.split("|")[1:-1]]
+            if len(cells) < 8 or cells[7] not in ("候选", "实验"):
+                continue
+            m = re.search(r"v(\d+\.\d+)", cells[4] or "")  # 「最近」列
+            if not m:
+                continue  # 只有轮次号（R7 等）的条目没有版本起点，不误报
+            got = _minor(m.group(1))
+            if not got:
+                continue
+            gap = (cur[0] * 100 + cur[1]) - (got[0] * 100 + got[1])
+            if gap >= 3:
+                stale_observations.append(f"{cells[0]}={cells[7]}（最近一次裁定 v{m.group(1)}，已过 {gap} 版）")
+    if stale_observations:
+        print(f"[!] 规则观察期到期：{len(stale_observations)} 条候选/实验态规则超过 3 个版本未裁定")
+        for item in stale_observations:
+            print(f"    - {item}")
+        print("    处置：升稳定 / 改修正 / 废弃，或把「最近」列更新为当前版本以延长观察期（须在变更记录写明理由）")
 
     # 2) 常量完整性：config 的墙/审稿常量必须在常量表有同值记载
     const_text = read("references/常量表.md")

@@ -146,6 +146,8 @@ class TestAiLiteStructural(unittest.TestCase):
 class RuleDocs(unittest.TestCase):
     def setUp(self):
         self.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        # v7.44 主文件瘦身为路由中枢，写作规则正文迁到写作铁律手册，断言跟着真源走
+        self.rules = (ROOT / "references" / "写作铁律.md").read_text(encoding="utf-8")
         self.ledger = (ROOT / "references" / "规则台账.md").read_text(encoding="utf-8")
         self.kb = (ROOT / "references" / "热榜知识库.md").read_text(encoding="utf-8")
         self.deai = (ROOT / "references" / "去AI味.md").read_text(encoding="utf-8")
@@ -161,8 +163,8 @@ class RuleDocs(unittest.TestCase):
             self.assertIn(state, ("候选", "实验", "稳定", "修正", "废弃"))
 
     def test_hook_five_slots(self):
-        self.assertIn("载体-动作-对象-信息性质-后果", self.skill)
-        self.assertIn("防提前消耗", self.skill)
+        self.assertIn("载体-动作-对象-信息性质-后果", self.rules)
+        self.assertIn("防提前消耗", self.rules)
 
     def test_ai_flavor_8dims(self):
         for dim in ("语言AI味", "情绪AI味", "对话AI味", "节奏AI味", "结构AI味", "视角AI味", "解释AI味", "重复AI味"):

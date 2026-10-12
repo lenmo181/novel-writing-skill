@@ -4,16 +4,20 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.43**（2026-10-12）
+> **当前版本：v7.44**（2026-10-12）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
 
-## v7.43 本轮升级重点
+## v7.44 本轮升级重点
 
-- **一键改版 `tools/bump_version.py`**：`--to/--date/--title` 一条命令把版本号与发布日期同步到全部 17 个登记点位（含 `版本台账.md` 的 38 行投影）。每个点位带期望命中次数，命中不符即报错；默认 `--dry-run`，`--apply` 落盘后自动串跑 lint / 引用 / 自检。
+- **主文件瘦身**：`SKILL.md` 从 **89KB / 868 行降到 35KB / 277 行**（-61%）。写作铁律早在 v7.40 就外置到 `references/写作铁律.md`，主文件却仍保留整份副本——这次清掉重复，主文件只留路由中枢：frontmatter、全局配置、模式路由表、快速开始、失败码与交付闸门、写章节执行流程，其余全部按需路由。
+- 新增三本外置手册：`references/目录结构.md`（doctor 目录树登记真源）、`references/指令速查.md`、`references/30项校验明细.md`。`doctor.py` 改为优先读 `目录结构.md`，缺失时回退 SKILL.md，兼容旧安装。
+- **审校骨架生成器 `tools/review_skeleton.py`**：按 schema 一次生成第14-30项骨架，项名取自核心校验映射（不另备清单），自动算正文 `chapter_sha256`；默认 `status=revise`，**骨架绝不会误通过 Gate**。
+- **语义弱证据档 `weak`**：AI 语义复核不可用时可用机械证据兜底，Gate 不卡死，但 `delivery_ready=false`、报告标 `semantic_strength=weak` 并列出具体项——可继续写，不可当正式交付结论。
+- **规则观察期到期机制**：`lint_skill.py` 对「候选/实验态且距上次裁定 ≥3 版」的规则自动点名，逼出显式裁定。本期处置：RB-027 废弃（11 版无校准数据、从未独立硬卡），RB-031 延长观察期（v7.45 前须给终局结论）。
 - **日期真源闸门**：此前版本号有 lint 守着、日期没有。现在 `config.py` 是唯一真源，`SKILL.md` / `README.md` / `CHANGELOG.md` 必须与之逐字一致，`lint_skill.py` 本地即可拦截漂移。
 - **测试不再复制日期**：`tests/release_meta.py` 把「断言日期等于某值」换成「四真源互相印证」，改版只改真源，测试永不失联。
 - **发布链门禁**：`release_check.py` 新增「HEAD 是否落在 v* tag 上」（默认警告，`--strict` 判失败）与「dist/ 是否有同号发布包」（判失败）。CI 增加 tag 触发。
@@ -514,7 +518,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.43**
+当前版本：**v7.44**
 
 历史版本：[versions/](versions/)
 
@@ -522,6 +526,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.44**：审校骨架生成器、语义弱证据降级、规则观察期到期机制、SKILL.md 瘦身至 50KB 以下
 - **v7.43**：一键改版工具 bump_version.py、日期真源闸门、发布链 tag 与同号包门禁
 - **v7.42**：交付 Gate 默认语义证据、墨尺自定义目录持久化、schemas 同步、发布包许可证与版本治理修复。
 - **v7.41**：墨尺一键安装向导（clone+路径持久化+起服自检，免环境变量）、mochi_check 接入持久化兜底、台账 RB-031 观察态、dist 维护裁定。

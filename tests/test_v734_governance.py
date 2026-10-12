@@ -189,28 +189,31 @@ class TestDowngradeRules(unittest.TestCase):
 
     def setUp(self):
         self.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        # v7.44 瘦身：30项通过标准迁到《30项校验明细》，题材例外等写作规则迁到《写作铁律》
+        self.checks = (ROOT / "references" / "30项校验明细.md").read_text(encoding="utf-8")
+        self.rules = (ROOT / "references" / "写作铁律.md").read_text(encoding="utf-8")
         self.ledger = (ROOT / "references" / "规则台账.md").read_text(encoding="utf-8")
 
     def test_rhetoric_no_minimum(self):
-        row = [l for l in self.skill.splitlines() if l.startswith("| 24 |")]
+        row = [l for l in self.checks.splitlines() if l.startswith("| 24 |")]
         self.assertTrue(row and "| ! |" in row[0], "第24项应为警告级")
         self.assertIn("不设修辞最低数量", row[0])
         self.assertIn("RB-028", self.ledger)
 
     def test_aliveness_signal(self):
-        row = [l for l in self.skill.splitlines() if l.startswith("| 21 |")]
+        row = [l for l in self.checks.splitlines() if l.startswith("| 21 |")]
         self.assertTrue(row and "| ! |" in row[0], "第21项应为警告级")
         self.assertIn("RB-029", self.ledger)
 
     def test_character_description_guide(self):
-        row = [l for l in self.skill.splitlines() if l.startswith("| 23 |")]
+        row = [l for l in self.checks.splitlines() if l.startswith("| 23 |")]
         self.assertTrue(row and "| ! |" in row[0], "第23项应为警告级")
         self.assertIn("RB-030", self.ledger)
 
     def test_genre_exception_section(self):
-        self.assertIn("题材例外优先原则", self.skill)
+        self.assertIn("题材例外优先原则", self.rules)
         for kw in ("无CP升级流低对话", "新书期前 10 章加厚", "A 级禁言词"):
-            self.assertIn(kw.replace(" ", ""), self.skill.replace(" ", ""))
+            self.assertIn(kw.replace(" ", ""), self.rules.replace(" ", ""))
 
     def test_ledger_has_executor_and_test(self):
         import re
@@ -261,7 +264,8 @@ class TestAntiGaming(unittest.TestCase):
     """反优化审计（机器侧）：为过检强塞导向的规则不应存在于硬卡位。"""
 
     def test_no_quota_words_in_hard_rules(self):
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        # v7.44：30项表迁到《30项校验明细》，硬卡行扫描跟着真源走
+        skill = (ROOT / "references" / "30项校验明细.md").read_text(encoding="utf-8")
         # 30 项表的 ✗ 行（脚本硬卡+AI硬项）中不得出现配额式表述
         hard_rows = [l for l in skill.splitlines() if l.startswith("| ") and "| ✗" in l and l.count("|") >= 5]
         for row in hard_rows:
@@ -269,9 +273,9 @@ class TestAntiGaming(unittest.TestCase):
                 self.assertNotIn(quota, row, f"硬卡行仍含配额表述：{row[:60]}")
 
     def test_signals_describe_not_quota(self):
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("不是打卡", skill.replace("**", ""))
-        self.assertIn("禁止为过检硬塞", skill.replace("**", ""))
+        checks = (ROOT / "references" / "30项校验明细.md").read_text(encoding="utf-8")
+        self.assertIn("不是打卡", checks.replace("**", ""))
+        self.assertIn("禁止为过检强塞", checks.replace("**", ""))
 
 
 if __name__ == "__main__":

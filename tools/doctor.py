@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.43）。
+"""技能包统一自检（v7.44）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -178,8 +178,20 @@ TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "_
 TREE_TREE_LINE_RE = re.compile(r"^[│\s]*[├└]──\s*(.+)$")
 
 
+def load_tree_doc(root: Path) -> str:
+    """目录树登记真源（v7.44）：优先 references/目录结构.md，缺失时回退 SKILL.md。
+
+    目录树已随主文件瘦身从 SKILL.md 外置，但旧包/旧安装仍把树写在 SKILL.md 里，
+    这里双向兼容，避免升级期误报「未登记」。
+    """
+    external = root / "references" / "目录结构.md"
+    if external.is_file():
+        return external.read_text(encoding="utf-8")
+    return (root / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+
+
 def parse_skill_tree(skill_text: str) -> tuple[set, set]:
-    """解析 SKILL.md「技能目录结构」树，返回 (登记文件相对路径集合, 免登记目录集合)。
+    """解析「技能目录结构」树，返回 (登记文件相对路径集合, 免登记目录集合)。
 
     以 `/` 结尾且未列任何子项的目录（如 versions/ 存档）视为免登记目录；
     列了子项的目录（tools/ references/ …）其子项必须逐个登记。
@@ -333,7 +345,7 @@ def audit(root: Path = ROOT) -> dict:
     ))
 
     if skill_text:
-        checks.append(tree_registry_report(root, skill_text))
+        checks.append(tree_registry_report(root, load_tree_doc(root)))
 
     return {
         "version": SKILL_VERSION,

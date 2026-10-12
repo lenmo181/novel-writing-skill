@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mochi_setup.py — 网络小说创作技能 v7.43 墨尺一键安装向导（打通AI味默认量化链路）
+mochi_setup.py — 网络小说创作技能 v7.44 墨尺一键安装向导（打通AI味默认量化链路）
 作用: 定位/安装墨尺 mochi-ruler（github.com/yycqyjq/mochi-ruler，MIT，纯标准库），
      并把仓库路径持久化到 ~/.mochi_ruler_path.json——此后 `mochi_check.py` 无需
      再设会话级环境变量 MOCHI_RULER_DIR，服务未起时自动拉起。
