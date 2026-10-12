@@ -102,7 +102,11 @@ def git_tag_check(root: Path) -> dict:
                           encoding="utf-8", errors="replace")
     if proc.returncode == 0 and proc.stdout.strip():
         tag = proc.stdout.strip()
-        if tag.lstrip("v") != SKILL_VERSION:
+        # tag 形如 v7.43.0，config 形如 7.43——去前缀 v 与补丁位 .0 后比对
+        tag_ver = tag.lstrip("v")
+        if tag_ver.endswith(".0"):
+            tag_ver = tag_ver[:-2]
+        if tag_ver != SKILL_VERSION:
             return {"name": "版本 tag", "ok": False, "exit_code": 1,
                     "detail": f"HEAD 位于 {tag}，但当前版本是 v{SKILL_VERSION}——"
                               "改版后需重新 `git tag -a v<新版本>`，否则发布包与代码对不上"}
