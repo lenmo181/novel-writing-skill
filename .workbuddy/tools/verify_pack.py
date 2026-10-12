@@ -1,40 +1,91 @@
 # -*- coding: utf-8 -*-
-"""上架包自检：脚本可执行性 + ZIP 结构校验"""
-import os, sys, subprocess, zipfile, json
+"""校验实际 SkillHub ZIP：结构、版本、许可证和解压后的运行时诊断。"""
+import argparse
+import re
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-STAGE = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.40", "网络小说创作技能")
-ZIP = os.path.join(ROOT, "dist", "网络小说创作技能_v7.40.0_skillhub.zip")
+ROOT = Path(__file__).resolve().parents[2]
+SKILL_NAME = "网络小说创作技能"
 
-print("=== 脚本可执行性（--help） ===")
-sd = os.path.join(STAGE, "scripts")
-bad = []
-for fn in sorted(os.listdir(sd)):
-    if not fn.endswith(".py"):
-        continue
-    p = os.path.join(sd, fn)
-    r = subprocess.run([sys.executable, p, "--help"], capture_output=True, text=True,
-                       encoding="utf-8", errors="ignore", cwd=STAGE, timeout=60)
-    ok = r.returncode == 0 or "usage" in (r.stdout or "").lower() or "用法" in (r.stdout or "")
-    print("  %-26s exit=%s %s" % (fn, r.returncode, "OK" if ok else "!! 异常"))
-    if not ok:
-        bad.append((fn, (r.stdout or "")[-300:], (r.stderr or "")[-300:]))
-for fn, o, e in bad:
-    print("    %s\n      out=%s\n      err=%s" % (fn, o, e))
 
-print("\n=== ZIP 结构校验 ===")
-with zipfile.ZipFile(ZIP) as z:
-    names = z.namelist()
-    roots = {n.split("/")[0] for n in names}
-    depth = max(len(n.split("/")) for n in names)
-    print("  顶层条目: %s" % roots)
-    print("  最大层级: %d（平台要求 ≤2 层，references/xxx.md 计为 2）" % depth)
-    print("  文件数: %d  |  解压后: %.2f MB" % (len(names), sum(i.file_size for i in z.infolist()) / 1024 / 1024))
-    print("  含 SKILL.md: %s" % any(n.endswith("SKILL.md") for n in names))
-    print("  含可执行脚本: %d 个" % sum(1 for n in names if "/scripts/" in n))
-    bad_ent = [n for n in names if n.startswith(".") or "__MACOSX" in n or n.endswith(".pyc")]
-    print("  垃圾条目: %s" % (bad_ent or "无"))
-    # 检查 zip 内 SKILL.md frontmatter
-    fm = z.read([n for n in names if n.endswith("SKILL.md")][0]).decode("utf-8").split("---")[1]
-    keys = [l.split(":")[0] for l in fm.strip().split("\n") if ":" in l]
-    print("  frontmatter 字段: %s" % keys)
+def verify(zip_path, version):
+    if not zip_path.is_file():
+        raise ValueError(f"发布包不存在：{zip_path}")
+    if zip_path.stat().st_size > 3 * 1024 * 1024:
+        raise ValueError("发布包超过 3MB")
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        if not names or len(names) != len(set(names)):
+            raise ValueError("ZIP 为空或含重复条目")
+        for name in names:
+            parts = PurePosixPath(name).parts
+            if (not parts or parts[0] != SKILL_NAME or ".." in parts or "\\" in name
+                    or any(part.startswith(".") or part == "__pycache__" for part in parts)
+                    or name.endswith((".pyc", ".pyo"))):
+                raise ValueError(f"非法 ZIP 条目：{name}")
+        required = ("SKILL.md", "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md",
+                    "scripts/config.py", "scripts/sync_skill.ps1", "scripts/mochi_setup.py",
+                    "schemas/chapter_semantic_review.schema.json", "schemas/chapter_readiness.schema.json",
+                    "schemas/full_review_queue.schema.json", "schemas/project_metadata.schema.json",
+                    "versions/CHANGELOG.md")
+        missing = [name for name in required if f"{SKILL_NAME}/{name}" not in names]
+        if missing:
+            raise ValueError("包内缺失：" + ", ".join(missing))
+        skill = archive.read(f"{SKILL_NAME}/SKILL.md").decode("utf-8-sig")
+        match = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n", skill, re.S)
+        if not match:
+            raise ValueError("SKILL.md frontmatter 非法")
+        fields = {}
+        for line in match.group(1).splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                raise ValueError("frontmatter 字段格式非法")
+            if key in fields:
+                raise ValueError(f"frontmatter 重复字段：{key}")
+            fields[key] = value.strip()
+        if fields.get("name") != "web-novel-writing" or fields.get("version") != version + ".0":
+            raise ValueError("包内技能名称或版本与源配置不一致")
+        package_config = archive.read(f"{SKILL_NAME}/scripts/config.py").decode("utf-8")
+        if not re.search(r'^SKILL_VERSION = ["\']' + re.escape(version) + r'["\']\s*$', package_config, re.M):
+            raise ValueError("包内 config.py 版本不一致")
+        print(f"ZIP 结构与版本通过：{len(names)} 个文件，v{version}.0", flush=True)
+        with tempfile.TemporaryDirectory(prefix="novel-package-audit-") as temp:
+            archive.extractall(temp)
+            extracted = Path(temp) / SKILL_NAME
+            for script in ("doctor.py", "lint_skill.py", "check_refs.py", "eval_skill.py"):
+                result = subprocess.run([sys.executable, str(extracted / "scripts" / script)],
+                                        cwd=extracted, capture_output=True, text=True,
+                                        encoding="utf-8", errors="replace", timeout=120)
+                print(f"{script}: exit={result.returncode}", flush=True)
+                if result.returncode:
+                    print(result.stdout + result.stderr)
+                    raise ValueError(f"最终 ZIP 解压后 {script} 失败")
+
+
+def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--zip", type=Path, help="校验指定 ZIP；默认当前版本 dist 包")
+    args = parser.parse_args(argv)
+    config = (ROOT / "tools" / "config.py").read_text(encoding="utf-8")
+    match = re.search(r'^SKILL_VERSION = ["\'](\d+\.\d+)["\']', config, re.M)
+    if not match:
+        parser.error("源 config.py 缺少 SKILL_VERSION")
+    version = match.group(1)
+    zip_path = args.zip or ROOT / "dist" / f"{SKILL_NAME}_v{version}.0_skillhub.zip"
+    try:
+        verify(zip_path, version)
+    except (ValueError, OSError, zipfile.BadZipFile, subprocess.TimeoutExpired) as exc:
+        print(f"发布包校验失败：{exc}", file=sys.stderr)
+        return 1
+    print("最终 ZIP 校验通过")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

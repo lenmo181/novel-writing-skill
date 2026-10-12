@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""评测场景矩阵校验器（v7.39）。
+"""评测场景矩阵校验器（v7.42）。
 
 只校验本地评测矩阵是否完整、可解析、与主技能入口一致；
 它不伪造 SkillHub 分数，也不替代真实模型行为评测。
@@ -104,6 +104,8 @@ def audit(root: Path = ROOT) -> dict:
 
 
 def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="校验网络小说创作技能的本地评测场景矩阵")
     parser.add_argument("root", nargs="?", default=str(ROOT), help="技能包根目录")
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")

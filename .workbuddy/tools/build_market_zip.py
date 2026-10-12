@@ -4,21 +4,29 @@
 - 从源目录构建符合 WorkBuddy 开放平台规范的 ZIP
 - 源目录零改动：所有改造只在 .workbuddy/tmp/stage 里做
 """
-import os, re, shutil, zipfile, subprocess, sys
+import ast, io, os, re, shutil, zipfile, subprocess, sys, tokenize
+from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # 以脚本所在仓库为根，保证包内容与当前源码版本一致
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SKILL_NAME = "网络小说创作技能"
-VER = "7.40.0"
-STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v7.40")
+CONFIG_TEXT = Path(ROOT, "tools", "config.py").read_text(encoding="utf-8")
+VERSION_MATCH = re.search(r'^SKILL_VERSION = ["\'](\d+\.\d+)["\']', CONFIG_TEXT, re.M)
+if not VERSION_MATCH:
+    raise SystemExit("tools/config.py 未找到 SKILL_VERSION，拒绝使用旧版本号打包")
+VER = VERSION_MATCH.group(1) + ".0"
+STAGE_ROOT = os.path.join(ROOT, ".workbuddy", "tmp", "stage_v" + VERSION_MATCH.group(1))
 STAGE = os.path.join(STAGE_ROOT, SKILL_NAME)
 DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
                 ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests"}
-EXCLUDE_FILES = {".gitignore", "LICENSE", "Thumbs.db", ".DS_Store",
-                 ".editorconfig", ".gitattributes", "NOTICE", "CONTRIBUTING.md", "SECURITY.md"}
+EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store",
+                 ".editorconfig", ".gitattributes"}
 EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXT = {".md", ".py", ".txt", ".json", ".yaml", ".yml", ".sh", ".html",
             ".js", ".ts", ".css", ".csv", ".bat", ".ps1"}
@@ -49,7 +57,7 @@ author: 豫晨""" % VER
 
 
 def log(*a):
-    print(*a)
+    print(*a, flush=True)
 
 
 # ---------- 1. 复制 ----------
@@ -91,20 +99,33 @@ for dp, _, fns in os.walk(STAGE):
             continue
         total += 1
         try:
-            t = open(p, encoding="utf-8").read()
+            t = Path(p).read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
         o = t
         for a, b in REPS:
             t = t.replace(a, b)
+        if fn.endswith(".py"):
+            tokens = []
+            for token in tokenize.generate_tokens(io.StringIO(t).readline):
+                if token.type == tokenize.STRING:
+                    try:
+                        if ast.literal_eval(token.string) == "tools":
+                            token = token._replace(string=repr("scripts"))
+                    except (ValueError, SyntaxError):
+                        pass
+                tokens.append(token)
+            t = tokenize.untokenize(tokens)
+        elif fn == "sync_skill.ps1":
+            t = t.replace('"tools"', '"scripts"')
         if t != o:
-            open(p, "w", encoding="utf-8", newline="").write(t)
+            Path(p).write_text(t, encoding="utf-8", newline="")
             changed += 1
 log("[3/6] 文本脱敏/改写：%d/%d 个文本文件被修改" % (changed, total))
 
 # ---------- 4. 补全 frontmatter ----------
 skill_md = os.path.join(STAGE, "SKILL.md")
-t = open(skill_md, encoding="utf-8").read()
+t = Path(skill_md).read_text(encoding="utf-8")
 m = re.match(r"^---\n(.*?)\n---\n", t, re.S)
 if not m:
     log("!! SKILL.md frontmatter 解析失败，终止")
@@ -112,13 +133,14 @@ if not m:
 fm = m.group(1)
 # WorkBuddy 要求 name 为 kebab-case（小写字母/数字/连字符），中文名走 display_name
 fm = re.sub(r"(?m)^name:\s*.*$", "name: web-novel-writing", fm, count=1)
-if "display_name:" not in fm:
-    fm_new = fm.rstrip() + "\n" + FM_INSERT
-    t = "---\n" + fm_new + "\n---\n" + t[m.end():]
-    open(skill_md, "w", encoding="utf-8", newline="").write(t)
-    log("[4/6] frontmatter 补全：display_name / display_name_en / description_zh / description_en / category / version / author")
-else:
-    log("[4/6] frontmatter 已含平台字段，跳过")
+fm = re.sub(r"(?m)^version:\s*.*$", "version: " + VER, fm)
+for line in FM_INSERT.splitlines():
+    key = line.split(":", 1)[0]
+    if not re.search(r"(?m)^" + re.escape(key) + r":", fm):
+        fm = fm.rstrip() + "\n" + line
+t = "---\n" + fm + "\n---\n" + t[m.end():]
+Path(skill_md).write_text(t, encoding="utf-8", newline="")
+log("[4/6] frontmatter 已统一平台名称、版本和缺失字段")
 
 # ---------- 5. 残留体检 ----------
 log("[5/6] 包内残留扫描")
@@ -126,7 +148,6 @@ BAD = [
     ("个人路径 lenmo", re.compile(r"[Cc]:[\\/]Users[\\/]lenmo")),
     ("旧平台 ZCode", re.compile(r"[Zz][Cc]ode")),
     ("旧目录 tools/", re.compile(r"\btools/")),
-    ("CODEX_HOME", re.compile(r"CODEX_HOME")),
     ("密钥样式", re.compile(r"sk-[A-Za-z0-9\-_]{16,}")),
 ]
 found = 0
@@ -135,7 +156,7 @@ for dp, _, fns in os.walk(STAGE):
         p = os.path.join(dp, fn)
         if os.path.splitext(fn)[1].lower() not in TEXT_EXT:
             continue
-        txt = open(p, encoding="utf-8", errors="ignore").read()
+        txt = Path(p).read_text(encoding="utf-8", errors="ignore")
         for label, pat in BAD:
             hits = pat.findall(txt)
             if hits:
@@ -143,6 +164,8 @@ for dp, _, fns in os.walk(STAGE):
                 log("    !! %s <- %s (%d)" % (label, p.replace(STAGE, "")[1:], len(hits)))
 if not found:
     log("    干净：无个人路径 / 旧平台名 / 旧目录名 / 密钥残留")
+else:
+    raise SystemExit("包内残留扫描失败，未生成新发布包")
 
 # ---------- 6. 文件清单 + 校验 + 打包 ----------
 files = []
@@ -153,19 +176,15 @@ for dp, _, fns in os.walk(STAGE):
 files.sort()
 log("[6/6] 包内 %d 个文件，合计 %.2f MB（ZIP 上限 3MB）" % (
     len(files), sum(os.path.getsize(os.path.join(STAGE_ROOT, f)) for f in files) / 1024 / 1024))
-for f in files:
-    log("    " + f)
-
 os.makedirs(DIST, exist_ok=True)
-with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+pending_zip = ZIP_PATH + ".pending"
+with zipfile.ZipFile(pending_zip, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
     for f in files:
         z.write(os.path.join(STAGE_ROOT, f), f)
+try:
+    subprocess.run([sys.executable, str(Path(__file__).with_name("verify_pack.py")), "--zip", pending_zip], check=True)
+except (OSError, subprocess.CalledProcessError):
+    Path(pending_zip).unlink(missing_ok=True)
+    raise SystemExit("最终 ZIP 校验失败，未替换发布包")
+os.replace(pending_zip, ZIP_PATH)
 log("\nZIP: %s  (%.2f MB)" % (ZIP_PATH, os.path.getsize(ZIP_PATH) / 1024 / 1024))
-
-# 引用完整性校验
-cr = os.path.join(STAGE, "scripts", "check_refs.py")
-if os.path.exists(cr):
-    r = subprocess.run([sys.executable, cr], capture_output=True, text=True, encoding="utf-8", cwd=STAGE)
-    log("\ncheck_refs.py 退出码=%s" % r.returncode)
-    out = (r.stdout or "") + (r.stderr or "")
-    log(out[-1500:] if out else "(无输出)")

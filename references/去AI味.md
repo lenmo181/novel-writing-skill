@@ -108,14 +108,17 @@ python tools/zhuque_check.py "书稿/第001章_章节名.md" --allow-external
 
 **检测通路降级链**：朱雀（线上模型判定，月额度 50 万 token）→ **额度用尽或离线时切墨尺**（本地读感统计，零额度零依赖）→ `check_chapter.py` AI味指数（机械粗测，始终在）。注意方向：朱雀人类分 **越高越好**（AI% 越低越好），墨尺 total **越高越好**（0-10，越高越像真人），别搞反。
 
-**准备（一次性）**：
+**准备（一次性）**（v7.41 起首选向导，装完免环境变量）：
 
 ```bash
-git clone https://github.com/yycqyjq/mochi-ruler.git   # MIT，纯标准库，无需 pip
-$env:MOCHI_RULER_DIR = "<墨尺仓库路径>"                  # PowerShell 当前会话；Bash 用 export
+python tools/mochi_setup.py                             # 一键：定位→clone（默认 ~/.mochi-ruler）→路径持久化（~/.mochi_ruler_path.json）→起服送样章自检
+# 手动兜底：git clone https://github.com/yycqyjq/mochi-ruler.git（MIT，纯标准库，无需 pip）
+#          再 $env:MOCHI_RULER_DIR = "<墨尺仓库路径>"（PowerShell 当前会话；Bash 用 export）
 ```
 
-**怎么跑**（服务连 127.0.0.1:8765；没起且配了 MOCHI_RULER_DIR 会自动拉起）：
+墨尺路径查找顺序（`mochi_check.py` 与向导一致）：`--dir`/已起服务 > 环境变量 `MOCHI_RULER_DIR` > 持久化文件 `~/.mochi_ruler_path.json` > 默认目录 `~/.mochi-ruler`。换目录重跑一次向导即可，环境变量只在手动兜底时才需要。
+
+**怎么跑**（服务连 127.0.0.1:8765；没起且有可用墨尺路径会自动拉起）：
 
 ```bash
 python tools/mochi_check.py "书稿/第001章_章节名.md"     # 单章

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.40）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
+"""全文审稿流水线（v7.42）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
-职责单一（治理铁律）：**只诊断，不修改**——本工具永不改写正文/档案/大纲。
+职责单一（治理铁律）：**只诊断正文，不修改正文/档案/大纲**；会写入 mind/ 诊断报告与问题队列。
 产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
 二审：再次运行时自动读取上一轮队列，输出「问题消失/保留/新增/回归」四分类对比节。
 阈值真源：tools/config.py（FULL_REVIEW_* / WALL_*），常量表·十三与之一致，lint/测试守护。
@@ -329,7 +329,7 @@ QUEUE_PATH = "mind/全文审稿队列.json"
 REPORT_PATH = "mind/全文审稿报告.md"
 
 
-def run_review(root, strict=False, as_json=False):
+def run_review(root, strict=False, as_json=False, no_write=False):
     if not root.is_dir():
         print(f"[✗] 输入错误：项目根不存在 {root}")
         return 2
@@ -367,12 +367,16 @@ def run_review(root, strict=False, as_json=False):
         "version": config.SKILL_VERSION, "round": round_no, "n_chapters": len(chapters),
         "to_chapter": cur_max, "counts": counts, "issues": queue, "resolved_log": resolved_log,
     }
-    try:
-        qpath.parent.mkdir(parents=True, exist_ok=True)
-        qpath.write_text(json.dumps(queue_doc, ensure_ascii=False, indent=1), encoding="utf-8")
-        q_saved = str(qpath)
-    except OSError as e:
-        q_saved = f"队列落盘失败：{e}"
+    write_failed = False
+    q_saved = None
+    if not no_write:
+        try:
+            qpath.parent.mkdir(parents=True, exist_ok=True)
+            qpath.write_text(json.dumps(queue_doc, ensure_ascii=False, indent=1), encoding="utf-8")
+            q_saved = str(qpath)
+        except OSError as e:
+            q_saved = f"队列落盘失败：{e}"
+            write_failed = True
 
     lines = [
         "# 全文审稿报告（full_review.py）",
@@ -402,15 +406,18 @@ def run_review(root, strict=False, as_json=False):
                 lines.append(f"  - [{tag}] {it['loc']}｜{it['msg']}")
     report = "\n".join(lines) + "\n"
     rpath = root / REPORT_PATH
-    try:
-        rpath.parent.mkdir(parents=True, exist_ok=True)
-        rpath.write_text(report, encoding="utf-8")
-        r_saved = str(rpath)
-    except OSError as e:
-        r_saved = f"报告落盘失败：{e}"
+    r_saved = None
+    if not no_write:
+        try:
+            rpath.parent.mkdir(parents=True, exist_ok=True)
+            rpath.write_text(report, encoding="utf-8")
+            r_saved = str(rpath)
+        except OSError as e:
+            r_saved = f"报告落盘失败：{e}"
+            write_failed = True
 
     if as_json:
-        print(json.dumps({**queue_doc, "round_diff": d, "queue": q_saved, "report": r_saved},
+        print(json.dumps({**queue_doc, "round_diff": d, "queue": q_saved, "report": r_saved, "no_write": no_write, "write_failed": write_failed},
                          ensure_ascii=False, indent=1))
     else:
         print(f"[i] 全文审稿（v{config.SKILL_VERSION}）第 {round_no} 轮：{len(chapters)} 章，问题 {len(queue)} 项 "
@@ -423,22 +430,30 @@ def run_review(root, strict=False, as_json=False):
             print(f"[i] 二审对比：消失 {len(d['resolved'])}｜保留 {len(d['persisted'])}｜新增 {len(d['new'])}｜回归 {len(d['regressed'])}")
             for it in d["regressed"][:5]:
                 print(f"[!] 回归：{it['loc']}｜{it['msg']}（该位置上轮已修复——回查修复方式）")
-        print(f"[i] 队列：{q_saved}")
-        print(f"[i] 报告：{r_saved}")
+        if no_write:
+            print("[i] 本次只读诊断，未写入报告或队列")
+        else:
+            print(f"[i] 队列：{q_saved}")
+            print(f"[i] 报告：{r_saved}")
         if counts["P0"]:
             print("[!] 存在 P0：必须先修再续写（按队列逐项确认，禁止销毁式重写）")
+    if write_failed:
+        return 2
     if strict and (counts["P0"] or counts["P1"]):
         return 1
     return 0
 
 
 def main():
-    ap = argparse.ArgumentParser(description="全文审稿流水线（只读诊断）：P0-P3 分级 + 修复队列 + 二审对比")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser(description="全文审稿流水线（正文只读；默认写入报告和队列）：P0-P3 分级 + 二审对比")
     ap.add_argument("project", help="小说项目根目录")
     ap.add_argument("--strict", action="store_true", help="存在 P0/P1 时退出码 1（发布门）")
     ap.add_argument("--json", action="store_true", help="JSON 输出")
+    ap.add_argument("--no-write", action="store_true", help="仅输出诊断，不写入报告或队列")
     args = ap.parse_args()
-    sys.exit(run_review(Path(args.project).expanduser(), strict=args.strict, as_json=args.json))
+    sys.exit(run_review(Path(args.project).expanduser(), strict=args.strict, as_json=args.json, no_write=args.no_write))
 
 
 if __name__ == "__main__":

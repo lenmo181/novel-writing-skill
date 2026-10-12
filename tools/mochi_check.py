@@ -7,8 +7,8 @@ mochi_check.py — 网络小说创作技能 v7.34 墨尺本地AI味检测（朱�
                                      [--url http://127.0.0.1:8765] [--timeout 60]
      python mochi_check.py --book <项目根> [--only 3,7-12] [--delay 0] [其余同上]
 服务: 默认连 http://127.0.0.1:8765。服务没起时：
-     设了环境变量 MOCHI_RULER_DIR（墨尺仓库路径）→ 自动启动 server.py；
-     没设 → 提示手动启动（cd 墨尺目录 && python server.py）后退出码 2。
+     MOCHI_RULER_DIR 或 mochi_setup.py 持久化路径（~/.mochi_ruler_path.json，v7.41 起）
+     → 自动启动 server.py；都没有 → 提示一键安装（python tools/mochi_setup.py）后退出码 2。
 判定: 每章总分 total（0-10）换算百分制人类分 = total×10（与朱雀「人类分≥90」同一条交付线）
      human ≥ min×10（默认90）通过；floor×10 ≤ human < min×10（默认80-89）警告；
      human < floor×10（默认<80）→ 退出码 1 禁止交付，按最差指标项定向改写。
@@ -40,6 +40,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from check_chapter import body_lines, count_chars, load_text  # noqa: E402
 from gen_index import collect_chapters  # noqa: E402
+from mochi_setup import resolve_ruler_dir  # noqa: E402
 
 DEFAULT_URL = "http://127.0.0.1:8765"
 KEY_ENV_DIR = "MOCHI_RULER_DIR"
@@ -67,16 +68,29 @@ def parse_only(spec):
     return out or None
 
 
+def launch_server(ruler_dir, port):
+    """在墨尺仓库目录后台拉起 server.py（与 mochi_setup 起服自检同款）。"""
+    subprocess.Popen([sys.executable, "server.py", str(port)], cwd=ruler_dir,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def ensure_server(base_url, timeout=10.0):
-    """探测墨尺服务；没起且 MOCHI_RULER_DIR 可用则自动启动。成功返回 None，失败返回原因 str。"""
+    """探测墨尺服务；没起且有可用墨尺路径（环境变量/持久化）则自动启动。成功返回 None，失败返回原因 str。"""
     # 端口严格按 URL 解析（v7.30：此前字符串切分会把 host:8765/path 的端口切成
     # "8765/path" 传给 server.py；无端口 URL 静默回退 8765，但探测走 base_url 的
     # 默认端口，自动起的服务永远探不通 → 超时误报）
-    port = urllib.parse.urlsplit(base_url).port
+    try:
+        parsed_url = urllib.parse.urlsplit(base_url)
+        port = parsed_url.port
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname or port == 0:
+            return "墨尺服务地址非法；请使用 http://127.0.0.1:8765 这样的地址"
+    except ValueError as exc:
+        return f"墨尺服务地址非法：{exc}"
 
     def alive():
         try:
-            urllib.request.urlopen(base_url + "/", timeout=2)
+            with urllib.request.urlopen(base_url + "/", timeout=2):
+                pass
             return True
         except urllib.error.HTTPError:
             return True  # 服务在，只是路径不回 200
@@ -89,18 +103,22 @@ def ensure_server(base_url, timeout=10.0):
         return (f"墨尺服务未启动（{base_url}），且 --url 未带端口、无法自动启动：\n"
                 f"    墨尺默认地址 http://127.0.0.1:8765——请用带端口的 --url 重试，"
                 f"或手动启动：cd <墨尺目录> && python server.py")
-    ruler_dir = os.environ.get(KEY_ENV_DIR, "")
-    server_py = os.path.join(ruler_dir, "server.py") if ruler_dir else ""
-    if not server_py or not os.path.isfile(server_py):
-        return (f"墨尺服务未启动（{base_url}）。二选一：\n"
-                f"    a) 手动启动：cd <墨尺目录> && python server.py\n"
-                f"    b) 设环境变量 {KEY_ENV_DIR}=<墨尺仓库路径>，本脚本自动启动")
-    subprocess.Popen([sys.executable, "server.py", str(port)], cwd=ruler_dir,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if parsed_url.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return f"远程墨尺服务无法连接：{base_url}；请在服务所在主机启动后重试"
+    ruler_dir = resolve_ruler_dir()  # 环境变量 > mochi_setup 持久化路径 > 默认目录（v7.41）
+    if not ruler_dir:
+        return (f"墨尺服务未启动（{base_url}），且未安装墨尺。任选其一：\n"
+                f"    a) 一键安装：python tools/mochi_setup.py（clone+持久化+自检，装完免环境变量）\n"
+                f"    b) 手动启动：cd <墨尺目录> && python server.py\n"
+                f"    c) 设环境变量 {KEY_ENV_DIR}=<墨尺仓库路径>，本脚本自动启动")
+    try:
+        launch_server(ruler_dir, port)
+    except OSError as exc:
+        return f"自动启动墨尺服务失败：{exc}"
     deadline = time.time() + timeout
     while time.time() < deadline:
         if alive():
-            print(f"[i] 已自动启动墨尺服务（{KEY_ENV_DIR}={ruler_dir}，端口 {port}）")
+            print(f"[i] 已自动启动墨尺服务（ruler_dir={ruler_dir}，端口 {port}）")
             return None
         time.sleep(0.5)
     return f"自动启动墨尺服务超时（{timeout:.0f}s），请手动启动后重试"
@@ -430,8 +448,8 @@ def run_book(args):
 def main():
     ap = argparse.ArgumentParser(
         description=f"墨尺本地AI味检测 v{SKILL_VERSION}（0-10分越高越像真人；朱雀额度用尽的本地兜底）",
-        epilog="服务：默认 127.0.0.1:8765，设 MOCHI_RULER_DIR=<墨尺仓库路径> 可自动启动。"
-               "退出码 0=通过 / 1=不达标禁止交付 / 2=输入或配置错误 / 3=分析失败。")
+        epilog="服务：默认 127.0.0.1:8765；先 python tools/mochi_setup.py 一键安装"
+               "（持久化路径，免环境变量）。退出码 0=通过 / 1=不达标禁止交付 / 2=输入或配置错误 / 3=分析失败。")
     ap.add_argument("file", nargs="?", help="章节文件（.md/.txt）；与 --book 二选一")
     ap.add_argument("--book", default="", metavar="项目根",
                     help="全书模式：扫 <项目根>/书稿/ 逐章检测，报告落盘 mind/墨尺检测报告.md")

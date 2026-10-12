@@ -4,21 +4,20 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.40**（2026-10-04）
+> **当前版本：v7.42**（2026-10-09）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
 
-## v7.40 本轮升级重点
+## v7.42 本轮升级重点
 
-- 前3章开篇闸门：`check_chapter.py --chapter-index N`，N≤3 硬卡黄金开篇铁律（禁开头8条、前300字人物+异常、前3段钩子信号）。
-- `--ai-lite` 升级为百分制人类分粗测，对齐朱雀/墨尺档位，并给出三维短板与定向 Gate 建议。
-- 对话三症状（机械问答对称/科普嘴/玩梗密度）接入机械检测，告别纯 AI 语义判定的执行衰减。
-- 主文件瘦身：写作规则外置《写作铁律》，版本历史外置 `versions/CHANGELOG.md` 唯一真源。
-- 新增《平台参数表》与 `check_chapter.py --platform` 预设；期待线台账与悬空期待线告警。
-- 新增 `tools/export_assistant_txt.py`：合并 书稿/ 为作家助手「本地导入」单文件 txt。
+- 章节交付 Gate 默认强制第14-30项语义证据；草稿显式使用 `--skip-semantic`，报告会标记 `delivery_ready=false`。
+- 墨尺自定义安装目录持久化；无效 `--dir` 与非法服务地址返回可读错误。`--no-verify` 仅跳过起服自检，首次 clone 仍需访问仓库。
+- 同步脚本补齐 schemas、许可证和治理文档，写入前检查源文件及目标路径。
+- 全文审稿新增 `--no-write`；章节 Gate 的 `--full` 默认调用此模式。单独运行全文审稿仍会写入报告和队列，正文保持只读。
+- 发布版本从配置读取；修复包内 tools 到 scripts 的目录转换与 frontmatter 重复字段，最终 ZIP 解压检查失败时停止构建。
 
 ## 这是什么
 
@@ -37,7 +36,7 @@
 
 > **先有事实，再有修改；先有证据，再有规则；修完必须复检。**
 
-默认情况下，诊断工具只读；涉及正文写入的流程必须明确写入边界，并提供备份或快照路径。
+诊断工具的写入边界见工具表；全文审稿默认写入报告和队列，可用 `--no-write` 完全只读。涉及正文写入的流程必须明确写入边界，并提供备份或快照路径。
 
 ---
 
@@ -125,7 +124,7 @@ reopened
 项目提供两级检测：
 
 - check_chapter.py --ai-lite：零外部服务的本地粗测。
-- mochi_check.py：本地墨尺检测。
+- mochi_check.py：本地墨尺检测（首次用 `python tools/mochi_setup.py` 一键安装，免环境变量）。
 - zhuque_check.py：可选第三方线上检测。
 
 线上检测属于**外部数据传输**，必须显式允许后才发送正文。
@@ -134,7 +133,7 @@ reopened
 
 ### 6. 章节交付 Gate
 
-chapter_readiness.py 把多个检查收敛为一个章节级结果，并可通过 `--with-semantic` 验证第14-30项语义证据：
+chapter_readiness.py 把多个检查收敛为一个章节级结果，默认验证第14-30项语义证据。`--with-semantic` 保持兼容；草稿检查用 `--skip-semantic`，其成功退出仅代表工程检查通过，不代表可交付：
 
 - 单章机械校验
 - 项目健康
@@ -294,7 +293,7 @@ release_check
 | 工具 | 作用 | 默认写入 |
 |---|---|---|
 | check_chapter.py | 单章机械校验 | 否 |
-| full_review.py | 全文诊断、问题队列、二审 | 否 |
+| full_review.py | 全文诊断、问题队列、二审 | 写入 mind/报告与队列，不改正文 |
 | chapter_readiness.py | 章节交付 Gate | 否 |
 | repair_runner.py | 修复状态管理 | 只改队列 |
 | repair_orchestrator.py | 修复计划、机械修复编排、复检 | 默认不写正文 |
@@ -515,7 +514,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.40**
+当前版本：**v7.42**
 
 历史版本：[versions/](versions/)
 
@@ -523,6 +522,8 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.42**：交付 Gate 默认语义证据、墨尺自定义目录持久化、schemas 同步、发布包许可证与版本治理修复。
+- **v7.41**：墨尺一键安装向导（clone+路径持久化+起服自检，免环境变量）、mochi_check 接入持久化兜底、台账 RB-031 观察态、dist 维护裁定。
 - **v7.40**：前3章开篇闸门、ai-lite 百分制、对话三症状机械检测、平台参数表、期待线台账、主文件瘦身与版本历史外置。
 - **v7.39**：安全写入授权、最小修复范围、Canonical Parser、30项语义证据 Gate、runtime 全量 parity 与回归补盲。
 - **v7.38**：Apache 2.0 许可证、NOTICE、安全/贡献/仓库配置、CI 发布门和回归治理。

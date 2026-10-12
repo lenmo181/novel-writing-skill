@@ -3,6 +3,61 @@
 > **v7.40 起版本历史唯一真源**（SKILL.md 不再内嵌版本历史，主文件只留一行指针）。
 > 版本日志四段式约定：每版分「更新 / 修复 / 降级删除 / 验证证据」四段（2026-09-30 用户裁定）。
 
+## v7.42（2026-10-09）：交付 Gate 与发布链修复版
+
+### 更新
+
+- 章节交付默认强制第14-30项语义证据；增加草稿参数 `--skip-semantic` 与独立 `delivery_ready` 字段。
+- 全文审稿增加 `--no-write`，章节 Gate 的 `--full` 调用不落盘诊断。
+- 发布构建与包检查从配置读取版本；校验实际 ZIP 的版本、结构与解压后的 doctor/lint/引用/评测矩阵。
+
+### 修复
+
+- 墨尺首次 clone 到自定义目录后补存路径；无效显式目录不再触发其他安装，非法 URL/端口与启动失败改为可读错误。
+- 语义回执拒绝非对象、非法 status、非字符串或空 evidence，避免崩溃和错误通过。
+- 同步补齐 schemas 与 LICENSE/NOTICE/CONTRIBUTING/SECURITY，并拒绝同步进源目录。
+- 发布包补齐许可证，修复 tools 转 scripts 的程序路径及 frontmatter 重复 version；包校验失败不替换已有发布包。
+- doctor 补齐语义 schema 必需项，运行时版本台账统一升至 v7.42。
+- 修复 Windows 默认 GBK 下部分 CLI 输出失败；doctor 忽略宿主安装元数据 `_meta.json`，必需文件检查覆盖许可证和治理文档。
+- 源码更新器兼容实际发布包的 scripts 布局；默认定位已有安装目录，避免在技能更新时创建重复副本。
+
+### 降级删除
+
+- 删除跳过语义检查时的正式交付 PASS 结论，以及“全文审稿完全只读”“--no-verify 支持离线安装”的不准确说明。
+- 发布检查退出码不再以输出包含 usage 作为成功依据。
+
+### 验证证据（2026-10-12 补跑；发布当时未跑）
+
+- **发布时缺口**：本版发布时未运行单元测试，导致两处测试里复制的 `RELEASE_DATE` 仍停留在 2026-10-07，而 `config.py` 已改为 2026-10-09——CI 三门矩阵必红。该漂移在 v7.43 修掉（改为四真源一致性断言 + lint 日期闸），教训写入《升级方案》。
+- 回归测试：`python -W error -m unittest discover -s tests -p "test_*.py"` → **200 项全过**（68.6s）。
+- 四件套：`lint_skill.py`（版本真源 7.42 / 运行时台账 38 行统一 v7.42 / 默认值一致）、`check_refs.py`（350 处相对引用零悬空）、`eval_skill.py --json`（16 场景）、`doctor.py --runtime-smoke --package-smoke`（目录树登记 83/83、工具入口冒烟 33/33、ZIP 解压副本自检通过）。
+- 发布包：`dist/网络小说创作技能_v7.42.0_skillhub.zip`（434,680 B）构建并通过包冒烟。
+
+---
+
+## v7.41（2026-10-07）：墨尺一键安装向导版
+
+### 更新
+- 墨尺一键安装向导 `tools/mochi_setup.py`：定位（`--dir` > 环境变量 > 持久化文件 > 默认目录）→ 缺则 `git clone --depth 1`（默认 `~/.mochi-ruler`，`--repo` 支持镜像/内网地址）→ 路径持久化 `~/.mochi_ruler_path.json` → 起服送样章自检（POST /api/analyze 验 `chapters[0].score.total`，与 mochi_check 回包契约一致）。退出码 0=就绪 / 1=安装或自检失败 / 2=参数路径错误；`--no-verify` 支持离线安装。打通 v7.7 墨尺兜底通路的「默认可用」。
+- `mochi_check.py` 服务自动拉起接入持久化路径兜底：读取顺序=环境变量 `MOCHI_RULER_DIR` > 持久化文件 > 默认目录（`resolve_ruler_dir` 由 mochi_setup 提供，单向依赖）；未安装时的报错指引改为首选 `python tools/mochi_setup.py`。
+- 路由表新增「墨尺安装 / 配置墨尺 / 墨尺向导 / 墨尺没装」触发行；SKILL.md 目录树、`去AI味.md`（准备段改为向导首选+查找顺序说明）、`工具选择.md`、`常量表.md`（服务地址/本地兜底注）、`快速开始.md`、`README.md`、doctor.py 运行时工具表同步接入。
+- 规则台账登记 RB-031：对话三症状=警告级机械线索（候选/观察态，本期维持警告级不升硬卡，继续观察误报率），补机械线索回归测试。
+
+### 修复
+- 无外部缺陷上报；本版为功能与治理维护轮。体检遗留的「dist 缺 v7.35-38 包」裁定见降级删除。
+
+### 降级删除
+- **dist 维护裁定**：缺的 v7.35-38 市场包无 git tag 可重建（仓库未打 tag），裁定 dist 只从 v7.40 起维护；现存旧 zip 留作存档不再补齐，SkillHub 侧以在线版本为准，不受影响。
+
+### 验证证据（2026-10-07 实测）
+
+- 新增 `tests/test_v741_mochi_setup.py` 22 项：路径有效性、持久化往返与坏文件容错、resolve 四级优先级（含坏环境变量警告不中断）、ensure_server 未安装指引/持久化拉起（launch_server 打桩）/服务在时不重复拉起（本机 8765 常驻服务已打桩隔离）、verify_install 回包契约（valid/缺 score.total/缺 chapters 三分支）、三症状机械线索正反例（RB-031 钉住）。
+- **真机端到端实测**：`python tools/mochi_setup.py` → 定位本机已有墨尺仓库（环境变量命中 `C:\Users\lenmo\tools\mochi-ruler`）→ 持久化 `~/.mochi_ruler_path.json` → 探测到服务常驻 → 送样章自检通过，退出码 0；幂等重跑「持久化路径已是当前目录」。首轮实测即抓出并修复自检回包解析错误（真实回包以 `chapters[0].score.total` 为准，非顶层 total）。
+- 全量回归：`python -W error -m unittest discover -s tests` → **200 项全过**（v7.40 基线 178 项 + 新增 22 项）。
+- 四件套自检：`lint_skill.py`（版本真源 7.41 / 运行时台账 38 行统一 v7.41 / 默认值一致）、`check_refs.py`（相对引用零悬空）、`eval_skill.py --json`、`doctor.py --runtime-smoke --package-smoke` 全绿（目录树登记 83/83、工具入口冒烟 33/33）；`compileall` 通过。
+
+---
+
 ## v7.40（2026-10-04）：执行闸门与主文件瘦身版
 
 ### 更新

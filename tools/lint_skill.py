@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.40）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.42）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -52,6 +52,8 @@ def fail(errors, message):
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     errors = []
     for core in ("SKILL.md", "README.md", "references/常量表.md"):
         if not (ROOT / core).is_file():
@@ -81,6 +83,24 @@ def main() -> int:
         fail(errors, "frontmatter description 未找到（需 description: \"…\" 双引号格式）")
     elif len(desc.group(1)) > 320:
         fail(errors, "frontmatter description 过长，超过 320 字符")
+    fm_version = re.findall(r"(?m)^version:\s*(\d+\.\d+\.\d+)\s*$", skill.split("\n---\n", 1)[0])
+    if fm_version != [f"{SKILL_VERSION}.0"]:
+        fail(errors, f"SKILL.md frontmatter version 应为 {SKILL_VERSION}.0")
+
+    # ── 日期真源一致性闸门 ──
+    # 背景：config.py 的 RELEASE_DATE 改动时，SKILL/README/CHANGELOG 与测试里的日期副本
+    # 没跟上，CI 三门矩阵全红。版本号一直有 lint 守着，日期此前没有——这里补上同一道闸。
+    # 唯一真源仍是 config.py；其余三处必须与之逐字一致。改版请用 tools/bump_version.py。
+    changelog = read("versions/CHANGELOG.md")
+    if not changelog:
+        fail(errors, "版本历史缺失：versions/CHANGELOG.md（v7.40 起唯一真源）")
+    else:
+        if f"v{SKILL_VERSION}（{RELEASE_DATE}）" not in skill.split("## 📚 版本历史", 1)[0]:
+            fail(errors, f"SKILL.md 版本行不是 v{SKILL_VERSION}（{RELEASE_DATE}）")
+        if f"v{SKILL_VERSION}**（{RELEASE_DATE}）" not in readme.split("## 版本历史", 1)[0]:
+            fail(errors, f"README.md 版本行不是 v{SKILL_VERSION}（{RELEASE_DATE}）")
+        if f"## v{SKILL_VERSION}（{RELEASE_DATE}）" not in changelog:
+            fail(errors, f"CHANGELOG.md 缺少 `## v{SKILL_VERSION}（{RELEASE_DATE}）` 条目")
 
     checks = {
         "章节下限": (str(DEFAULT_CHAPTER_MIN), skill, constants),
@@ -162,8 +182,8 @@ def main() -> int:
     if "--files" not in read("tools/fix_said_tags.py"):
         fail(errors, "fix_said_tags.py 缺少 --files 最小修复范围入口")
     readiness = read("tools/chapter_readiness.py")
-    if "--with-semantic" not in readiness or "第14-30项" not in readiness:
-        fail(errors, "chapter_readiness.py 未提供第14-30项语义证据 Gate")
+    if "--with-semantic" not in readiness or "--skip-semantic" not in readiness or "with_semantic=True" not in readiness:
+        fail(errors, "chapter_readiness.py 默认语义 Gate 或草稿豁免入口缺失")
     # ── v7.39 规则治理六检（承接 v7.38） ──
     # 1) 规则台账完整性：RB 行数、字段对齐、状态枚举、执行工具/对应测试列必须有内容
     ledger = read("references/规则台账.md")

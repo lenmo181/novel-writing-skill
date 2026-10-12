@@ -10,6 +10,8 @@
     "chapter": {"type": "integer", "minimum": 1},
     "gates": {"type": "array"},
     "ok": {"type": "boolean"},
+    "delivery_ready": {"type": "boolean"},
+    "semantic_required": {"type": "boolean"},
     "generated_at": {"type": "string"}
   },
   "additionalProperties": true

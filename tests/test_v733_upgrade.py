@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(TOOLS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_meta import assert_release_consistent  # noqa: E402
 
 
 def load_mod(name):
@@ -190,8 +192,8 @@ class RuleDocs(unittest.TestCase):
 
     def test_version(self):
         from config import SKILL_VERSION, RELEASE_DATE
-        self.assertRegex(SKILL_VERSION, r"^\d+\.\d+$")
-        self.assertEqual(RELEASE_DATE, "2026-10-04")
+        # v7.43：不再断言硬编码日期（副本必然漂移），改为四真源一致性
+        assert_release_consistent(self, ROOT, SKILL_VERSION, RELEASE_DATE)
         self.assertIn(f"v{SKILL_VERSION}", self.skill.split("## 📚 版本历史", 1)[0])
 
     def test_constants_code_consistency(self):

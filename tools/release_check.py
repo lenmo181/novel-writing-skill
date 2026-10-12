@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""发布前只读预检（v7.39）。
+"""发布前只读预检（v7.42）。
 
 运行技能自检、评测矩阵、lint、引用检查和可选回归测试；
 可额外比对本地安装副本。不会上传 SkillHub，也不会替换任何文件。
@@ -109,6 +109,8 @@ def audit(root: Path = ROOT, installed: Optional[Path] = None, include_tests: bo
 
 
 def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="网络小说创作技能发布前只读预检")
     parser.add_argument("root", nargs="?", default=str(ROOT), help="技能包根目录")
     parser.add_argument("--installed", default="", help="本地安装副本路径，只做内容比对")

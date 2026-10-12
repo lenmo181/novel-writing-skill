@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.39）。
+"""技能包统一自检（v7.42）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -29,11 +29,15 @@ REQUIRED_DIRS = ("references", "templates", "tools", "versions", "schemas")
 REQUIRED_FILES = (
     "SKILL.md",
     "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CONTRIBUTING.md",
     "templates/项目模板.md",
     "SECURITY.md",
     "schemas/full_review_queue.schema.json",
     "schemas/project_metadata.schema.json",
     "schemas/chapter_readiness.schema.json",
+    "schemas/chapter_semantic_review.schema.json",
     "references/快速开始.md",
     "references/工具选择.md",
     "references/研究来源.md",
@@ -79,6 +83,7 @@ RUNTIME_TOOLS = (
     "cover_check.py",
     "zhuque_check.py",
     "mochi_check.py",
+    "mochi_setup.py",
     "gen_index.py",
     "doctor.py",
     "eval_skill.py",
@@ -169,7 +174,7 @@ def _check(label: str, ok: bool, detail: str, fix: str = "") -> dict:
 # 豁免范围与上架包一致（build_market_zip.py）：tests/ 与仓库基础设施文件不随技能包分发
 TREE_EXCLUDED_PARTS = {".git", ".github", ".workbuddy", ".v2c", ".video_agent",
                        ".playwright-cli", "dist", "out", "__pycache__", "tests"}
-TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "交流群二维码.png"}
+TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "_meta.json", "交流群二维码.png"}
 TREE_TREE_LINE_RE = re.compile(r"^[│\s]*[├└]──\s*(.+)$")
 
 
@@ -341,6 +346,8 @@ def audit(root: Path = ROOT) -> dict:
 
 
 def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         description="网络小说创作技能统一自检：结构、版本、语法与相对引用"
     )

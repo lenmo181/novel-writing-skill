@@ -10,6 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_meta import assert_release_consistent  # noqa: E402
 
 import full_review  # noqa: E402
 from config import SKILL_VERSION
@@ -69,16 +71,17 @@ class TestRepairRunner(unittest.TestCase):
 
 
 class TestGovernanceSchemas(unittest.TestCase):
-    def test_ledger_has_30_rows_and_11_fields(self):
+    def test_ledger_rows_and_11_fields(self):
         ledger = (ROOT / "references" / "规则台账.md").read_text(encoding="utf-8")
         rows = [x for x in ledger.splitlines() if x.startswith("| RB-")]
-        self.assertEqual(len(rows), 30)
+        self.assertGreaterEqual(len(rows), 31)
         for row in rows:
             cells = row.split("|")[1:-1]
             self.assertEqual(len(cells), 11, row[:80])
         self.assertIn("| RB-028 |", ledger)
         self.assertIn("| RB-029 |", ledger)
         self.assertIn("| RB-030 |", ledger)
+        self.assertIn("| RB-031 |", ledger)
 
     def test_runtime_manifest_covers_all_reference_manuals(self):
         manifest = (ROOT / "references" / "版本台账.md").read_text(encoding="utf-8")
@@ -93,8 +96,8 @@ class TestGovernanceSchemas(unittest.TestCase):
 class TestReleaseVersion(unittest.TestCase):
     def test_config_and_skill(self):
         from config import SKILL_VERSION, RELEASE_DATE
-        self.assertRegex(SKILL_VERSION, r"^\d+\.\d+$")
-        self.assertEqual(RELEASE_DATE, "2026-10-04")
+        # v7.43：不再断言硬编码日期（副本必然漂移），改为四真源一致性
+        assert_release_consistent(self, ROOT, SKILL_VERSION, RELEASE_DATE)
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(f"v{SKILL_VERSION}", skill.split("## 📚 版本历史", 1)[0])

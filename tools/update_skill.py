@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""检查并安全更新网络小说创作技能（v7.34）。
+"""检查并安全更新网络小说创作技能（v7.42）。
 
 默认只检查 SkillHub 版本；只有明确使用 --update/--auto 且确认后才替换本地技能。
 更新只影响 Codex 技能目录，不触碰用户的小说项目目录。
@@ -24,11 +24,12 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional, Tuple
 
 try:
-    from config import SKILLHUB_DOWNLOAD_URL
+    from config import SKILLHUB_DOWNLOAD_URL, SKILLHUB_SLUG
 except ImportError:  # 允许直接复制脚本后仍能给出可用默认值
     SKILLHUB_DOWNLOAD_URL = (
         "https://api.skillhub.cn/api/v1/download?slug=@user_cd8383ec/web-novel-writing"
     )
+    SKILLHUB_SLUG = "@user_cd8383ec/web-novel-writing"
 
 
 SKILL_NAME = "网络小说创作技能"
@@ -67,6 +68,13 @@ def version_text(version: Tuple[int, int, int], preserve_patch: bool = True) -> 
 def default_destination() -> Path:
     codex_home = os.environ.get("CODEX_HOME", "").strip()
     base = Path(codex_home).expanduser() if codex_home else Path.home() / ".codex"
+    skill_root = Path(__file__).resolve().parents[1]
+    skills_dir = (base / "skills").resolve()
+    if skills_dir in skill_root.parents and (skill_root / "SKILL.md").is_file():
+        return skill_root
+    slug_install = skills_dir / SKILLHUB_SLUG
+    if (slug_install / "SKILL.md").is_file():
+        return slug_install
     return base / "skills" / SKILL_NAME
 
 
@@ -78,10 +86,11 @@ def default_backup_dir() -> Path:
 
 def read_local_version(root: Path) -> Tuple[int, int, int]:
     skill = root / "SKILL.md"
-    config = root / "tools" / "config.py"
+    config = root / Path(__file__).resolve().parent.name / "config.py"
     for path, pattern in (
         (skill, r"版本[^\n]*?v(\d+\.\d+(?:\.\d+)?)"),
         (config, r"SKILL_VERSION\s*=\s*[\"'](\d+\.\d+(?:\.\d+)?)[\"']"),
+        (root / "scripts" / "config.py", r"SKILL_VERSION\s*=\s*[\"'](\d+\.\d+(?:\.\d+)?)[\"']"),
     ):
         if path.exists():
             match = re.search(pattern, path.read_text(encoding="utf-8", errors="replace"))
@@ -177,8 +186,9 @@ def extract_zip(zip_path: Path, destination: Path) -> Path:
         matches = [path for path in children if (path / "SKILL.md").exists()]
         if len(matches) == 1:
             candidate = matches[0]
-    if not (candidate / "SKILL.md").exists() or not (candidate / "tools" / "config.py").exists():
-        raise ValueError("ZIP 不是有效的网络小说创作技能包：缺少 SKILL.md 或 tools/config.py")
+    config_dirs = {"scripts", Path(__file__).resolve().parent.name}
+    if not (candidate / "SKILL.md").is_file() or not any((candidate / name / "config.py").is_file() for name in config_dirs):
+        raise ValueError("ZIP 不是有效的网络小说创作技能包：缺少 SKILL.md 或运行时 config.py")
     return candidate
 
 
@@ -326,6 +336,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     try:
         return check_or_update(args)

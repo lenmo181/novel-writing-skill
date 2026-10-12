@@ -11,7 +11,17 @@ if (-not $Destination) {
     $Destination = Join-Path (Join-Path $codexHome "skills") $skillName
 }
 
-$items = @("SKILL.md", "README.md", "templates", "tools", "references", "versions")
+$items = @("SKILL.md", "README.md", "LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "templates", "tools", "references", "schemas", "versions")
+$sourcePath = [System.IO.Path]::GetFullPath($source).TrimEnd('\', '/')
+$destinationPath = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\', '/')
+if ($sourcePath -eq $destinationPath -or $destinationPath.StartsWith($sourcePath + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Destination must be outside the source skill directory."
+}
+foreach ($item in $items) {
+    if (-not (Test-Path -LiteralPath (Join-Path $source $item))) {
+        throw "Required source item is missing: $item"
+    }
+}
 if (-not $WhatIf) {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 }

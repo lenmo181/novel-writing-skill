@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.39）：工程 Gate + 可验证语义 Gate。"""
+"""章节交付 Gate（v7.42）：默认工程 Gate + 可验证语义 Gate。"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -40,6 +40,8 @@ def semantic_gate(root, chapter):
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": [f"审校记录无法解析：{exc}"]}
+    if not isinstance(data, dict):
+        return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["审校记录必须是 JSON 对象"]}
     if data.get("version") != SKILL_VERSION:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"审校记录 version={data.get('version')} 与当前运行时 v{SKILL_VERSION} 不一致"]}
     if data.get("chapter") != chapter:
@@ -65,11 +67,12 @@ def semantic_gate(root, chapter):
             missing.append(str(number))
             continue
         status = item.get("status")
-        if status not in {"pass", "warn", "revise", "blocked"}:
+        if not isinstance(status, str) or status not in {"pass", "warn", "revise", "blocked"}:
             invalid.append(str(number))
-        if status in {"revise", "blocked"}:
+        if isinstance(status, str) and status in {"revise", "blocked"}:
             failed.append(number)
-        if not str(item.get("evidence", "")).strip():
+        evidence = item.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
             invalid.append(f"{number}:evidence")
     if missing:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"缺少语义校验项：{chr(44).join(missing)}"]}
@@ -79,10 +82,10 @@ def semantic_gate(root, chapter):
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"存在未解决语义项：{chr(44).join(map(str, failed))}"]}
     return {"name": "30项语义证据", "ok": True, "exit_code": 0, "tail": [f"第14-30项共{len(SEMANTIC_CHECKS)}项均有 status + evidence"]}
 
-def assess(root, chapter, full=False, with_semantic=False):
+def assess(root, chapter, full=False, with_semantic=True):
     target = resolve_chapter(root, chapter)
     if target is None:
-        return {"version": SKILL_VERSION, "project": str(root), "chapter": chapter, "ok": False, "input_error": True,
+        return {"version": SKILL_VERSION, "project": str(root), "chapter": chapter, "ok": False, "delivery_ready": False, "semantic_required": with_semantic, "input_error": True,
                 "gates": [{"name": "章节存在", "ok": False, "exit_code": 2, "tail": [f"未找到第{chapter}章"]}]}
     commands = [
         ("单章机械校验", [sys.executable, str(TOOLS / "check_chapter.py"), str(target)]),
@@ -94,18 +97,23 @@ def assess(root, chapter, full=False, with_semantic=False):
     if with_semantic:
         gates.append(semantic_gate(root, chapter))
     if full:
-        gates.append(run_gate("全文审稿", [sys.executable, str(TOOLS / "full_review.py"), str(root), "--strict", "--json"], root))
+        gates.append(run_gate("全文审稿", [sys.executable, str(TOOLS / "full_review.py"), str(root), "--strict", "--json", "--no-write"], root))
     return {"version": SKILL_VERSION, "project": str(root), "chapter": chapter,
             "target": str(target.relative_to(root)), "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "semantic_required": with_semantic,
             "semantic_record": str(semantic_path(root, chapter).relative_to(root)) if with_semantic else None,
-            "gates": gates, "ok": all(g["ok"] for g in gates), "input_error": False}
+            "gates": gates, "ok": all(g["ok"] for g in gates),
+            "delivery_ready": with_semantic and all(g["ok"] for g in gates), "input_error": False}
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=f"章节交付 Gate v{SKILL_VERSION}")
     ap.add_argument("project"); ap.add_argument("chapter", type=int)
     ap.add_argument("--full", action="store_true", help="额外运行全文审稿 strict")
-    ap.add_argument("--with-semantic", action="store_true", help="要求 mind/审校/第XXX章审校.json 覆盖第14-30项并逐项给证据")
+    semantic_group = ap.add_mutually_exclusive_group()
+    semantic_group.add_argument("--with-semantic", dest="with_semantic", action="store_true", default=True, help="默认启用：要求 mind/审校/第XXX章审校.json 覆盖第14-30项并逐项给证据")
+    semantic_group.add_argument("--skip-semantic", dest="with_semantic", action="store_false", help="仅做工程 Gate；适合草稿检查，不可作为正式交付结论")
     ap.add_argument("--json", action="store_true"); ap.add_argument("--out", default="")
     args = ap.parse_args(argv)
     root = Path(args.project).expanduser().resolve()
@@ -133,7 +141,9 @@ def render(report):
         lines.append(f"| {gate['name']} | {'PASS' if gate['ok'] else 'REVISE'} | {gate['exit_code']} |")
     lines += [
         "",
-        "结论：" + ("PASS，可进入交付/作者验收。" if report["ok"] else "REVISE，先处理失败 Gate。"),
+        "结论：" + ("PASS，可进入交付/作者验收。" if report.get("delivery_ready") else
+                    "草稿工程检查通过；未执行语义 Gate，不可作为正式交付结论。" if report["ok"] else
+                    "REVISE，先处理失败 Gate。"),
         "",
         "语义 Gate 需要第14-30项逐项 evidence；本工具只验证记录完整性，不代替作者/AI做文学判断。",
         "失败 Gate 的详细输出已保留在 JSON 报告中；本工具不修改正文。",
