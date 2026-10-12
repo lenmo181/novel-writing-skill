@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.42）：默认工程 Gate + 可验证语义 Gate。"""
+"""章节交付 Gate（v7.43）：默认工程 Gate + 可验证语义 Gate。"""
 from __future__ import annotations
 import argparse
 import hashlib

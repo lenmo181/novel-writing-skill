@@ -3,6 +3,39 @@
 > **v7.40 起版本历史唯一真源**（SKILL.md 不再内嵌版本历史，主文件只留一行指针）。
 > 版本日志四段式约定：每版分「更新 / 修复 / 降级删除 / 验证证据」四段（2026-09-30 用户裁定）。
 
+## v7.43（2026-10-12）：发布链工程化版
+
+### 更新
+
+- 一键改版工具 `tools/bump_version.py`：点位清单配置化（22 条 / 17 个文件），每条声明「文件 + 原串 + 新串 + 期望命中次数」。命中 0 次=漏改、次数不符=误改风险，均报错退出。默认 `--dry-run` 只打印，`--apply` 落盘后自动串跑 `lint_skill.py` → `check_refs.py` → `doctor.py`（`--no-verify` 可跳过）。覆盖 `版本台账.md` 的 38 行投影、`SKILL.md` frontmatter 与版本行、`README.md` 四处、10 个工具 docstring，并按四段式在 CHANGELOG 插入新版本骨架。退出码 0/1/2。
+- 残留扫描：规则应用后仍出现旧版本号的文件会被点名交人工确认——版本标签型（如「v7.42：章节语义证据 Gate」）不该被批量改写，这是有意保留的。
+- `lint_skill.py` 新增日期真源一致性闸门：`config.py` 是唯一真源，`SKILL.md` / `README.md` / `CHANGELOG.md` 必须与之逐字一致。
+- `tests/release_meta.py`：`assert_release_consistent()` 把「断言日期等于某个值」换成「格式 + 四真源互相印证」，`test_v733_upgrade` 与 `test_v735_governance` 改用它。
+- `release_check.py` 新增两道发布链门禁：版本 tag（HEAD 是否落在 v* tag 上；默认警告，`--strict` 判失败）、发布包同号（`dist/` 是否存在当前版本 zip；判失败）。报告新增 `warnings` 字段与严格模式。
+- `.github/workflows/verify.yml` 增加 `tags: ["v*"]` 触发。
+- 路由表新增「改版 / 升版本 / 发布新版 / bump」触发行，SKILL.md 目录树登记 `bump_version.py`。
+
+### 修复
+
+- **v7.42 发布后实测缺陷**：两处测试复制的 `RELEASE_DATE` 仍为 2026-10-07，`config.py` 已是 2026-10-09，CI 三门矩阵（3.10/3.12/3.13）必红。根因是「日期有真源却被复制到测试里」，改为四真源一致性断言后，改版只改真源、测试永不失联。
+- **版本历史断裂**：HEAD 停在 v7.40、工作树已到 v7.42、仓库从未打 tag，导致 dist 包无法从源码重建。本轮补交 v7.41 / v7.42 并打 `v7.42.0` tag。
+
+### 降级删除
+
+- 删除「测试可复制发布日期作为断言」的做法——副本必然漂移，任何新测试不得再硬编码 `RELEASE_DATE` 字面量。
+- 改版不再允许单点手改：跨文件同步一律走 `bump_version.py`，手改会被残留扫描与 lint 日期闸门点名。
+
+### 验证证据（2026-10-12 实测）
+
+- 新增 `tests/test_v743_release_chain.py` **17 项**：日期真源正反例（陈旧日期 `2020-01-01`、未知版本 `9.99`、格式错误 `2026/10/12` 三反例）、「测试不得再硬编码发布日期」全目录扫描、bump 点位覆盖四真源、expect 缺失白名单、replace/regex/insert_before 三类命中与报错语义（漏改 / 次数不符 / 锚点缺失）、tag 与同号包两道门禁正反例、`audit()` warnings 字段。
+- 全量回归：`python -W error -m unittest discover -s tests -p "test_*.py"` → **217 项全过**（73.0s；v7.42 基线 200 + 新增 17）。
+- 四件套：`lint_skill.py`（v7.43 / 运行时台账 39 行统一 v7.43 / 日期真源一致）、`check_refs.py`（354 处相对引用零悬空，较上版 +4）、`eval_skill.py --json`（16 场景）、`doctor.py --runtime-smoke --package-smoke`（目录树登记 **84/84**，新增 bump_version 登记；工具入口冒烟 33/33；ZIP 解压副本自检通过）。
+- **真机端到端**：`bump_version.py --dry-run` 打印 22 点位 / 17 文件与残留确认清单 → `--apply` 一次成功 → 自校验 lint/refs/doctor 全绿。残留清单准确点出 5 个版本标签型点位（工具选择 `## v7.42：章节语义证据 Gate`、SKILL 目录树 mochi_setup 标记等），确认无需改写。
+- 发布包：`dist/网络小说创作技能_v7.43.0_skillhub.zip`（0.42 MB / 93 文件），包内 doctor/lint/refs/eval 全绿，无个人路径与旧平台名残留。
+- `release_check.py` 两道门实测生效：发布包同号命中 v7.43.0 zip；版本 tag 正确报出「HEAD 位于 v7.42.0，但当前版本是 v7.43」。
+
+---
+
 ## v7.42（2026-10-09）：交付 Gate 与发布链修复版
 
 ### 更新
