@@ -244,6 +244,10 @@ def render_markdown(report):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=f"网络小说项目结构体检 v{SKILL_VERSION}")
     parser.add_argument("project", help="小说项目根目录")
     parser.add_argument("--json", action="store_true", help="输出 JSON")

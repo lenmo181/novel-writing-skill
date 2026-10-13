@@ -193,6 +193,10 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="「他/她说」光杆引导批量修复（弯引号流专用）")
     ap.add_argument("dir", nargs="?", help="书稿目录")
     ap.add_argument("--files", nargs="+", default=[], help="只处理明确指定的章节文件，适合修复队列最小范围执行")

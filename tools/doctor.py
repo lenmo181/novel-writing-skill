@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.44）。
+"""技能包统一自检（v7.45）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -97,7 +97,16 @@ RUNTIME_TOOLS = (
     "audit_log.py",
     "memory_search.py",
     "repair_runner.py",
+    "bump_version.py",
+    "review_skeleton.py",
+    "chapter_index.py",
+    "run_tests.py",
+    "export_assistant_txt.py",
+    "research_audit.py",
 )
+
+# 无 CLI 入口的纯模块：被 import 使用，不以脚本方式运行，不进冒烟清单
+NON_CLI_TOOLS = {"config.py"}
 
 
 def runtime_smoke(root: Path, timeout: float = 8.0) -> list[dict]:
@@ -127,6 +136,32 @@ def runtime_smoke(root: Path, timeout: float = 8.0) -> list[dict]:
             ok, detail = False, str(exc)
         results.append({"tool": name, "ok": ok, "detail": detail})
     return results
+
+
+def smoke_registry_report(root: Path) -> dict:
+    """入口冒烟清单完整性（v7.45）：tools/*.py 必须全部登记进 RUNTIME_TOOLS。
+
+    背景：RUNTIME_TOOLS 是手工清单，已连续三版漏登记新工具——
+    v7.43 的 bump_version、v7.44 的 review_skeleton、v7.45 的 chapter_index/run_tests
+    都没进清单，冒烟数一直停在 33，给人「全过」的假象。
+    这里把「未登记」变成显式失败：新增 CLI 工具不进清单，普通 doctor 运行即报警，
+    不必等 --runtime-smoke。纯模块（无 argparse 入口）登记进 NON_CLI_TOOLS 豁免。
+    """
+    tools_dir = root / "tools"
+    actual = {p.name for p in tools_dir.glob("*.py")} if tools_dir.is_dir() else set()
+    registered = set(RUNTIME_TOOLS)
+    unregistered = sorted(actual - registered - NON_CLI_TOOLS)
+    ghost = sorted(registered - actual)
+    if unregistered or ghost:
+        parts = []
+        if unregistered:
+            parts.append(f"未登记：{chr(44).join(unregistered)}")
+        if ghost:
+            parts.append(f"清单有文件无：{chr(44).join(ghost)}")
+        return _check("冒烟清单登记", False, "；".join(parts),
+                      "把新 CLI 工具补进 RUNTIME_TOOLS；纯模块补进 NON_CLI_TOOLS")
+    return _check("冒烟清单登记", True,
+                  f"RUNTIME_TOOLS {len(registered)} 项与 tools/*.py 全量对齐（豁免 {len(NON_CLI_TOOLS)} 个纯模块）")
 
 
 def package_smoke(root: Path, timeout: float = 15.0) -> dict:
@@ -360,6 +395,8 @@ def audit(root: Path = ROOT) -> dict:
 def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         description="网络小说创作技能统一自检：结构、版本、语法与相对引用"
     )
@@ -371,6 +408,7 @@ def main(argv=None) -> int:
     report = audit(Path(args.root))
 
     if not report.get("input_error"):
+        report["checks"].append(smoke_registry_report(Path(args.root).expanduser().resolve()))
         if args.runtime_smoke:
             smoke = runtime_smoke(Path(args.root).expanduser().resolve())
             passed = all(item["ok"] for item in smoke)

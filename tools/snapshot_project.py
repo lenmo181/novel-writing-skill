@@ -74,6 +74,10 @@ def create_snapshot(root: Path, label="prechange", include_chapters=False, dry_r
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=f"创建小说项目安全快照 v{SKILL_VERSION}")
     parser.add_argument("project", help="小说项目根目录")
     parser.add_argument("--label", default="prechange", help="快照标签")

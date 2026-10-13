@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.44）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.45）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 from pathlib import Path
 import re
 import sys
@@ -54,6 +54,8 @@ def fail(errors, message):
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     errors = []
     for core in ("SKILL.md", "README.md", "references/常量表.md"):
         if not (ROOT / core).is_file():
@@ -101,6 +103,16 @@ def main() -> int:
             fail(errors, f"README.md 版本行不是 v{SKILL_VERSION}（{RELEASE_DATE}）")
         if f"## v{SKILL_VERSION}（{RELEASE_DATE}）" not in changelog:
             fail(errors, f"CHANGELOG.md 缺少 `## v{SKILL_VERSION}（{RELEASE_DATE}）` 条目")
+        # ── 版本段占位闸门（v7.45）──
+        # bump_version.py 插入的新版段落款带「待补」占位；忘了写正文时，
+        # 既有检查只验证「条目存在」，占位原样留着也能过——等于发版漏文档。
+        # 这里对 CHANGELOG 当前版本段与 README 当前版本亮点段各设一道闸。
+        clog_section = changelog.split(f"## v{SKILL_VERSION}（{RELEASE_DATE}）", 1)[1].split("\n## ", 1)[0]
+        if "待补" in clog_section:
+            fail(errors, f"CHANGELOG.md v{SKILL_VERSION} 段落款未填（仍含「待补」占位）")
+        highlight = readme.split(f"## v{SKILL_VERSION} 本轮升级重点", 1)
+        if len(highlight) < 2 or "待补" in highlight[1].split("\n## ", 1)[0]:
+            fail(errors, f"README.md 缺少「## v{SKILL_VERSION} 本轮升级重点」段，或该段仍含「待补」占位")
 
     checks = {
         "章节下限": (str(DEFAULT_CHAPTER_MIN), skill, constants),

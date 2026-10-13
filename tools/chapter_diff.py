@@ -11,6 +11,7 @@ from check_chapter import body_lines, count_chars, dialogue_chars, dialogue_span
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 

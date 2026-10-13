@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文修复编排器（v7.44）。
+"""全文修复编排器（v7.45）。
 
 默认路径：读取诊断队列 → 生成任务包；任何正文写入都必须显式 --apply。
 机械修复只允许处理任务包中明确命中的章节，不再对整个书稿横扫。
@@ -166,6 +166,10 @@ def verify(root, full=False):
     return result
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=f"全文修复编排器 v{SKILL_VERSION}")
     ap.add_argument("project")
     ap.add_argument("command", choices=("prepare", "apply-mechanical", "verify", "cycle"))

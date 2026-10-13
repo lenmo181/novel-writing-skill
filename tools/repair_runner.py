@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿修复队列状态执行层（v7.44）。
+"""全文审稿修复队列状态执行层（v7.45）。
 
 只管理 mind/全文审稿队列.json 的状态，不直接修改正文、档案或大纲。
 状态：open / reopened / fixed / auto_fixed / wont_fix。
@@ -110,6 +110,10 @@ def set_status(root: Path, issue_id: str, target: str):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="全文审稿修复队列状态管理（不改正文）")
     parser.add_argument("root", help="项目根目录")
     group = parser.add_mutually_exclusive_group(required=True)

@@ -95,6 +95,8 @@ def build_skeleton(root: Path, chapter: int, chapter_file: Path, status: str) ->
 def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="生成第14-30项语义审校骨架 JSON")
     parser.add_argument("project", help="小说项目根目录")
     parser.add_argument("chapter", type=int, help="章号，如 12")

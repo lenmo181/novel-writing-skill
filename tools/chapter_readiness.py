@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.44）：默认工程 Gate + 可验证语义 Gate。"""
+"""章节交付 Gate（v7.45）：默认工程 Gate + 可验证语义 Gate。"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -125,6 +125,8 @@ def assess(root, chapter, full=False, with_semantic=True):
 def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=f"章节交付 Gate v{SKILL_VERSION}")
     ap.add_argument("project"); ap.add_argument("chapter", type=int)
     ap.add_argument("--full", action="store_true", help="额外运行全文审稿 strict")

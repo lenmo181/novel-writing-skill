@@ -36,6 +36,7 @@ from config import DEFAULT_ZHUQUE_THRESHOLD, DEFAULT_ZHUQUE_WARN, SKILL_VERSION
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 

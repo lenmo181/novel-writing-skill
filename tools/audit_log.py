@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from config import SKILL_VERSION
@@ -59,6 +60,10 @@ def verify_log(root: Path) -> dict:
     return {"version": SKILL_VERSION, "path": str(path), "count": len(rows), "ok": not errors, "errors": errors}
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=f"小说项目追加式审计日志 v{SKILL_VERSION}")
     sub = ap.add_subparsers(dest="command", required=True)
     add = sub.add_parser("append"); add.add_argument("project"); add.add_argument("--event", required=True); add.add_argument("--subject", default=""); add.add_argument("--status", default=""); add.add_argument("--details", default="{}")

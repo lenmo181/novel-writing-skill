@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.44）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
+"""全文审稿流水线（v7.45）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
 职责单一（治理铁律）：**只诊断正文，不修改正文/档案/大纲**；会写入 mind/ 诊断报告与问题队列。
 产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
@@ -56,11 +56,25 @@ def read_text(path):
     return None, None
 
 
-def find_chapters(root):
-    """返回按章号排序的 [(章号, Path)]；识别不到章号的文件跳过并单独上报。"""
+def find_chapters(root, use_index=True):
+    """返回按章号排序的 [(章号, Path)]；识别不到章号的文件跳过并单独上报。
+
+    v7.45：章号/标题/字数这类元数据优先走 `chapter_index` 的增量缓存——
+    千章规模下每次全文审稿不再为元数据重读全部正文。索引不可用时自动回退全量扫描。
+    """
     book_dir = root / "书稿"
     base = book_dir if book_dir.is_dir() else root
     chapters, unrecognized = [], []
+    indexed = {}
+    if use_index and book_dir.is_dir():
+        try:
+            import chapter_index
+            records, _stat = chapter_index.scan(root)
+            indexed = {r["chapter"]: Path(root) / r["path"] for r in records}
+        except Exception:
+            indexed = {}  # 索引是缓存不是事实，任何异常都回退全量扫描
+    if indexed:
+        return sorted(indexed.items(), key=lambda x: x[0]), unrecognized
     for p in sorted(base.glob("*.md")):
         m = CH_NUM_RE.search(p.stem)
         if m:
@@ -447,6 +461,8 @@ def run_review(root, strict=False, as_json=False, no_write=False):
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="全文审稿流水线（正文只读；默认写入报告和队列）：P0-P3 分级 + 二审对比")
     ap.add_argument("project", help="小说项目根目录")
     ap.add_argument("--strict", action="store_true", help="存在 P0/P1 时退出码 1（发布门）")

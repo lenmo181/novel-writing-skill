@@ -138,6 +138,10 @@ def init_project(target: Path, title: str, genre: str = "待补充", platform: s
 
 
 def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=f"创建长篇网络小说项目骨架 v{SKILL_VERSION}（短篇使用短篇模式模板）")
     parser.add_argument("project", nargs="?", default="", help="项目根目录；省略时使用默认小说工作区/书名")
     parser.add_argument("--title", required=True, help="书名")

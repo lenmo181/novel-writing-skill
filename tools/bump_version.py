@@ -73,9 +73,14 @@ def build_rules(old, new, old_date, new_date, title, summary):
     rgx("SKILL.md", rf"^> \*\*版本\*\*：v{re.escape(old)}（{old_date}）.+$",
         f"> **版本**：v{new}（{new_date}）· {title}")
 
-    # 3) README.md：当前版本行、本轮重点标题、版本段、最近版本重点新增一条
+    # 3) README.md：当前版本行、本轮亮点段（insert_before 保留历史段）、最近版本重点新增一条
+    # 历史教训：此处原为 rep「## v{old} 本轮升级重点」→「## v{new} 本轮升级重点」，
+    # 只推标题版本号、内容原地不动。改版后忘了重写该段，上一版内容就挂到新版本
+    # 名下（v7.44 段在 v7.45 名下挂了整整一轮）。改为与 CHANGELOG 同构的
+    # insert_before：新段插在旧段之前，旧段标题永远归属正确版本。
     rep("README.md", f"当前版本：v{old}**（{old_date}）", f"当前版本：v{new}**（{new_date}）")
-    rep("README.md", f"## v{old} 本轮升级重点", f"## v{new} 本轮升级重点")
+    ins("README.md", f"## v{old} 本轮升级重点",
+        f"## v{new} 本轮升级重点\n\n- 待补：本轮新增或变更的能力\n\n")
     rep("README.md", f"当前版本：**v{old}**", f"当前版本：**v{new}**")
     ins("README.md", f"- **v{old}**：", f"- **v{new}**：{summary}\n")
 
@@ -192,6 +197,8 @@ def verify():
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description="一键改版：把版本与发布日期同步到全部登记点位")
     parser.add_argument("--to", required=True, help="目标版本，如 7.43")

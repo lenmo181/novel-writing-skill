@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.44"
+SKILL_VERSION = "7.45"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
 RELEASE_DATE = "2026-10-12"
 
@@ -30,6 +30,11 @@ DEFAULT_MOCHI_FLOOR = 8
 
 DEFAULT_CONTEXT_RECENT_CHAPTERS = 3
 DEFAULT_CONTEXT_MAX_CHARS = 6000
+# 上下文包总预算（v7.45）：单文件上限之外再加一道总量闸门，
+# 保证 1000+ 章时上下文不会随 recent 线性膨胀。权重见 context_pack.ROLE_WEIGHTS。
+DEFAULT_CONTEXT_MAX_TOTAL = 24000
+# 当前章的保底份额：预算再紧也不低于总量的这个比例（否则写作者看不到本章原文）
+DEFAULT_CONTEXT_CURRENT_FLOOR_RATIO = 0.25
 DEFAULT_DIFF_DELETE_WARN = 0.10
 
 TITLE_MIN = 2

@@ -4,12 +4,20 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.44**（2026-10-12）
+> **当前版本：v7.45**（2026-10-12）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
+
+## v7.45 本轮升级重点
+
+- **章节索引与增量扫描 `tools/chapter_index.py`**（超长篇地基）：元数据（章号 / 标题 / 字数 / sha256）落盘到 `mind/.index/chapters.json`，以 `(mtime_ns, size)` 为失效判据——没动过的章直接复用缓存，只有改过的才重新读盘。三条纪律：索引是缓存不是事实（删掉自动重建、结果一致）；不缓存正文（避免与 `书稿/` 双写）；判据用 mtime+size 而非每次重算 sha256（否则等于重新读盘，失去增量意义）。
+- `full_review` 与 `context_pack` 的元数据改走索引：查章号从「每章 glob 一次 `书稿/`」变成 O(1) 查表，取最近 N 章不再有 stat 风暴；索引不可用时自动回退原全量扫描路径，行为不变。
+- **上下文预算控制器**：此前只有单文件上限、没有总量闸门，长篇后期上下文会线性膨胀。现在新增总预算 24000 字符，按角色权重切分（当前章 3.0 倍权重 + 25% 保底，预算再紧也不会把正在写的这一章挤没），报告新增 `budget` 块（used / per_role / limits / truncated_files），`--max-total 0` 可关闭。
+- **测试分片 `tools/run_tests.py`**：`--shard i/n` 按测试文件体积贪心装箱（比哈希取模均衡：实测 5/8/7 而非 5/10/5），分配稳定、不重不漏；CI 矩阵加 3 分片，墙钟时间约降为 1/3。
+- 修复三处工程债：README 亮点段此前被改版工具「标题版本号 +1、内容不动」的规则错位（v7.44 内容挂了 v7.45 标题，本版改为 insert_before 保留历史段，并由 lint 增设占位闸门）；`doctor` 的冒烟清单是手工表，连续三版漏登记新工具、冒烟数虚高为「全过」（本版补齐 6 个工具至 39/39，并新增清单登记闸门——未登记即失败）；`release_check --strict` 下 tag 检查失败项的 KeyError。
 
 ## v7.44 本轮升级重点
 
@@ -518,7 +526,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.44**
+当前版本：**v7.45**
 
 历史版本：[versions/](versions/)
 
@@ -526,6 +534,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.45**：章节索引与增量扫描、上下文预算控制器、测试分片
 - **v7.44**：审校骨架生成器、语义弱证据降级、规则观察期到期机制、SKILL.md 瘦身至 50KB 以下
 - **v7.43**：一键改版工具 bump_version.py、日期真源闸门、发布链 tag 与同号包门禁
 - **v7.42**：交付 Gate 默认语义证据、墨尺自定义目录持久化、schemas 同步、发布包许可证与版本治理修复。

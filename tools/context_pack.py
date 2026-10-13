@@ -12,10 +12,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from config import DEFAULT_CONTEXT_MAX_CHARS, DEFAULT_CONTEXT_RECENT_CHAPTERS, SKILL_VERSION
+from config import (DEFAULT_CONTEXT_CURRENT_FLOOR_RATIO, DEFAULT_CONTEXT_MAX_CHARS,
+                    DEFAULT_CONTEXT_MAX_TOTAL, DEFAULT_CONTEXT_RECENT_CHAPTERS,
+                    SKILL_VERSION)
+from canonical_parser import CHAPTER_FILE_RE  # noqa: F401  (保持与章节命名口径同源)
+import chapter_index
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
@@ -43,6 +48,16 @@ def sha256_bytes(data):
 
 
 def chapter_path(root: Path, number: int):
+    """按章号定位章节：优先走章节索引（O(1)），索引不可用时回退全目录匹配。
+
+    v7.45：原实现每次调用都 glob 整个 书稿/，取最近 N 章就是 N 次全目录扫描，
+    在千章规模下是 O(N×M) 的 stat 风暴。
+    """
+    rel = chapter_index.lookup(root, number)
+    if rel:
+        candidate = root / rel
+        if candidate.is_file():
+            return candidate
     pattern = re.compile(rf"^第0*{number}章(?:[_\-\s]+.*)?\.(?:md|txt)$", re.I)
     matches = [path for path in (root / "书稿").glob("*") if path.is_file() and pattern.match(path.name)]
     return sorted(matches)[0] if matches else None
@@ -78,32 +93,95 @@ def read_entry(root: Path, path: Path, limit: int, role: str):
     }
 
 
+# v7.45 上下文预算：角色权重决定总量怎么切。当前章权重最高且有保底，
+# 保证预算再紧也不会把「正在写的这一章」挤没。
+ROLE_WEIGHTS = {
+    "canonical": 1.0,
+    "current-chapter": 3.0,
+    "current-review": 1.0,
+    "recent-chapter": 1.0,
+    "recent-review": 0.5,
+}
+CURRENT_ROLE = "current-chapter"
+
+
+def plan_entries(root: Path, chapter, recent: int) -> list:
+    """先规划「要放哪些文件、各是什么角色」，不读盘——预算分配需要这一步。"""
+    plan = []
+    for rel in CANONICAL_FILES:
+        if (root / rel).is_file():
+            plan.append((rel, "canonical"))
+    if chapter is None:
+        return plan
+    review = f"mind/回顾/第{chapter:03d}章回顾.md"
+    if (root / review).is_file():
+        plan.append((review, "current-review"))
+    current = chapter_path(root, chapter)
+    if current:
+        plan.append((current.relative_to(root).as_posix(), CURRENT_ROLE))
+    for number in range(max(1, chapter - recent), chapter):
+        path = chapter_path(root, number)
+        if path:
+            plan.append((path.relative_to(root).as_posix(), "recent-chapter"))
+        rev = review_path(root, number)
+        if rev:
+            plan.append((rev.relative_to(root).as_posix(), "recent-review"))
+    return plan
+
+
+def allocate_limits(plan: list, max_total: int, max_chars: int,
+                    floor_ratio: float = DEFAULT_CONTEXT_CURRENT_FLOOR_RATIO) -> dict:
+    """按角色权重把总预算切成每角色的单文件上限（再受 max_chars 硬顶约束）。"""
+    counts = {}
+    for _rel, role in plan:
+        counts[role] = counts.get(role, 0) + 1
+    weighted = sum(ROLE_WEIGHTS.get(role, 1.0) * count for role, count in counts.items())
+    limits = {}
+    for role, count in counts.items():
+        if count <= 0:
+            continue
+        share = max_total * ROLE_WEIGHTS.get(role, 1.0) / weighted if weighted else max_chars
+        limits[role] = max(200, int(min(max_chars, share / count)))
+    # 当前章保底：预算被摊薄时也要留下可读的一截
+    if CURRENT_ROLE in limits and max_total:
+        floor_limit = int(max_total * floor_ratio)
+        limits[CURRENT_ROLE] = max(limits[CURRENT_ROLE], min(max_chars * 2, floor_limit))
+    return limits
+
+
 def build_pack(root: Path, chapter=None, recent=DEFAULT_CONTEXT_RECENT_CHAPTERS,
-               max_chars=DEFAULT_CONTEXT_MAX_CHARS):
+               max_chars=DEFAULT_CONTEXT_MAX_CHARS, max_total=DEFAULT_CONTEXT_MAX_TOTAL):
+    plan = plan_entries(root, chapter, recent)
+    limits = allocate_limits(plan, max_total, max_chars) if max_total else {}
+
     selected = []
     seen = set()
-    def add(rel, role, limit=max_chars):
+
+    def add(rel, role):
         path = root / rel
         if not path.is_file() or str(path) in seen:
             return
         seen.add(str(path))
+        limit = limits.get(role, max_chars * 2 if role == CURRENT_ROLE else max_chars)
         selected.append(read_entry(root, path, limit, role))
 
-    for rel in CANONICAL_FILES:
-        add(rel, "canonical")
+    for rel, role in plan:
+        add(rel, role)
 
-    if chapter is not None:
-        add(f"mind/回顾/第{chapter:03d}章回顾.md", "current-review")
-        current = chapter_path(root, chapter)
-        if current:
-            add(str(current.relative_to(root)), "current-chapter", max_chars * 2)
-        for number in range(max(1, chapter - recent), chapter):
-            path = chapter_path(root, number)
-            if path:
-                add(str(path.relative_to(root)), "recent-chapter", max_chars)
-            review = review_path(root, number)
-            if review:
-                add(str(review.relative_to(root)), "recent-review", max_chars)
+    # 预算按「实际注入的字符数」计，不是文件原始大小——被截断的部分并没有进上下文
+    used = sum(len(item["content"]) for item in selected)
+    per_role = {}
+    for item in selected:
+        per_role[item["role"]] = per_role.get(item["role"], 0) + len(item["content"])
+    budget = {
+        "max_total": max_total,
+        "used": used,
+        "raw_chars": sum(item["chars"] for item in selected),
+        "within_budget": (not max_total) or used <= max_total,
+        "per_role_chars": per_role,
+        "limits": limits,
+        "truncated_files": [item["path"] for item in selected if item.get("truncated")],
+    }
 
     return {
         "version": SKILL_VERSION,
@@ -112,6 +190,7 @@ def build_pack(root: Path, chapter=None, recent=DEFAULT_CONTEXT_RECENT_CHAPTERS,
         "chapter": chapter,
         "recent": recent,
         "max_chars": max_chars,
+        "budget": budget,
         "files": selected,
     }
 
@@ -124,6 +203,17 @@ def render_markdown(pack):
         f"- 目标章节：{pack['chapter'] or '未指定'}",
         f"- 生成时间：{pack['generated_at']}",
         f"- 文件数：{len(pack['files'])}",
+    ]
+    budget = pack.get("budget")
+    if budget:
+        lines += [
+            f"- 上下文预算：{budget['used']} / {budget['max_total']} 字符"
+            f"（{'未超预算' if budget['within_budget'] else '已超预算'}）",
+        ]
+        if budget["limits"]:
+            shown = "；".join(f"{k}={v}" for k, v in sorted(budget["limits"].items()))
+            lines.append(f"- 各角色单文件上限：{shown}")
+    lines += [
         "",
         "## 来源清单",
         "",
@@ -149,6 +239,7 @@ def main():
     parser.add_argument("--chapter", type=int, default=None, help="目标章节号")
     parser.add_argument("--recent", type=int, default=DEFAULT_CONTEXT_RECENT_CHAPTERS, help=f"附带前几章（默认{DEFAULT_CONTEXT_RECENT_CHAPTERS}）")
     parser.add_argument("--max-chars", type=int, default=DEFAULT_CONTEXT_MAX_CHARS, help=f"每个档案最多字符数（默认{DEFAULT_CONTEXT_MAX_CHARS}）")
+    parser.add_argument("--max-total", type=int, default=DEFAULT_CONTEXT_MAX_TOTAL, help=f"上下文包总字符预算（默认{DEFAULT_CONTEXT_MAX_TOTAL}；0 表示不设总量闸门）")
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     parser.add_argument("--out", default="", help="输出文件；不传则打印到标准输出")
     args = parser.parse_args()
@@ -159,7 +250,8 @@ def main():
     if args.recent < 0 or args.max_chars < 200:
         print("[✗] --recent 必须不小于0，--max-chars 必须不小于200")
         return 2
-    pack = build_pack(root, args.chapter, args.recent, args.max_chars)
+    pack = build_pack(root, args.chapter, args.recent, args.max_chars,
+                      args.max_total if args.max_total > 0 else 0)
     output = json.dumps(pack, ensure_ascii=False, indent=2) if args.format == "json" else render_markdown(pack)
     if args.out:
         target = Path(args.out).expanduser()

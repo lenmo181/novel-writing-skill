@@ -164,6 +164,10 @@ def export(project: str, out: str | None = None, range_spec: str | None = None,
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(
         description="合并 书稿/ 为作家助手「本地导入」可用的单文件 txt（只读书稿，唯一写入是导出 txt）")
     ap.add_argument("project", nargs="?", default=".", help="小说项目根目录（默认当前目录）")

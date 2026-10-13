@@ -3,6 +3,39 @@
 > **v7.40 起版本历史唯一真源**（SKILL.md 不再内嵌版本历史，主文件只留一行指针）。
 > 版本日志四段式约定：每版分「更新 / 修复 / 降级删除 / 验证证据」四段（2026-09-30 用户裁定）。
 
+## v7.45（2026-10-12）：超长篇规模化版
+
+### 更新
+
+- **章节索引与增量扫描 `tools/chapter_index.py`**（超长篇地基）：元数据（章号 / 标题 / 字数 / sha256）落盘到 `mind/.index/chapters.json`，以 `(mtime_ns, size)` 为失效判据——未变更的章节复用缓存，只有改过的才重新读盘。三条纪律：索引是缓存不是事实（删掉自动重建、结果一致）；不缓存正文（避免与 `书稿/` 双写）；变更判据用 mtime+size 而非每次重算 sha256（否则等于重新读盘，失去增量意义）。CLI 支持 `--rebuild` / `--json` / `--stats`。
+- `context_pack.py` 的章号定位改为**先查索引（O(1)）再回退全目录匹配**。原实现每找一章就 glob 一次 `书稿/`，取最近 N 章就是 N 次全目录扫描，千章规模下是 stat 风暴。
+- `full_review.py` 的章节清单改为走索引增量；索引不可用时自动回退原全量扫描路径。
+- **上下文预算控制器**：新增总预算闸门 `DEFAULT_CONTEXT_MAX_TOTAL=24000`，按角色权重（`current-chapter` 3.0 > canonical/current-review/recent-chapter 1.0 > recent-review 0.5）把总量切成各角色单文件上限，再受 `--max-chars` 硬顶约束；当前章有 25% 保底（`DEFAULT_CONTEXT_CURRENT_FLOOR_RATIO`），预算再紧也不会把正在写的这一章挤没。报告新增 `budget` 块（used / raw_chars / per_role_chars / limits / truncated_files / within_budget），`--max-total 0` 可关闭总量闸门。`used` 按**实际注入字符数**计，不是文件原始大小。
+- **测试分片 `tools/run_tests.py`**：`--shard i/n`，以测试文件体积为耗时代理贪心装箱（比哈希取模均衡，实测 5/8/7 而非 5/10/5），分配稳定、不重不漏；`--list-shards n` 打印方案。CI 矩阵加 `shard: [1/3, 2/3, 3/3]`，墙钟时间约降为 1/3。
+- **冒烟清单登记闸门**：`doctor.py` 的 `RUNTIME_TOOLS` 是手工清单，已连续三版漏登记新工具（v7.43 bump_version、v7.44 review_skeleton、v7.45 chapter_index/run_tests 均未进清单），冒烟数停在 33 造成「全过」假象。本期补齐 6 个 CLI 工具（39/39 通过），并新增 `smoke_registry_report()` 完整性检查：`tools/*.py` 与 `RUNTIME_TOOLS` 必须全量对齐（纯模块登记进 `NON_CLI_TOOLS` 豁免），未登记即失败——普通 `doctor` 运行就会报警，不必等 `--runtime-smoke`。
+
+### 修复
+
+- 上下文包此前的隐性规模缺陷：只有单文件上限、没有总量闸门，`--recent` 调大或单章变长时上下文会线性膨胀，长篇后期直接挤爆窗口。
+- `context_pack` 章号定位的 O(N×M) stat 风暴（见上）。
+- Windows GBK 控制台安全加固：所有 CLI 入口同时把 `sys.stdout` 和 `sys.stderr` 切到 UTF-8；此前只切 stdout，更新回滚、错误提示等中文经 stderr 按 GBK 写字节，父进程以 UTF-8 消费时会在后台 reader 线程抛 `UnicodeDecodeError`。
+- README「本轮升级重点」段错位：`bump_version.py` 的规则只把该段标题版本号 +1、内容原地不动，改版后忘了重写就会把上一版内容挂到新版本名下（v7.44 段在 v7.45 名下挂了整整一轮）。改为与 CHANGELOG 同构的 insert_before——新段插在旧段之前，旧段标题永远归属正确版本；lint 增设「当前版本段不得留占位符」闸门。
+- `release_check --strict` 下 tag 检查失败项缺 `ok` 键导致 KeyError（v7.44 遗留）。
+- 冒烟清单手工漂移：6 个 CLI 工具从未登记进 `RUNTIME_TOOLS`，冒烟数虚高为「全过」（详见「更新」末条的登记闸门）。
+
+### 降级删除
+
+- 不再允许「为拿元数据而全量重读正文」：`full_review` / `context_pack` 的元数据一律优先走索引。索引文件本身不进发布包契约，删掉只影响速度不影响正确性。
+
+### 验证证据
+
+- 回归：`tools/run_tests.py`（等价 `python -W error -m unittest discover -s tests -p "test_*.py"`）**251 项全过**（v7.44 基线 232 + 新增 19，含千章索引压测、预算闸门、冒烟清单反例与 Windows GBK 子进程编码回归）。
+- 四件套：lint 通过（含本版新增的版本段占位闸门）；`check_refs.py` 392 处零悬空；`eval_skill.py` 16 场景全过；`doctor.py` 目录树登记 90/90、冒烟清单登记 39/39 对齐、入口冒烟 39/39、ZIP 解压自检通过。
+- 真机实测：千章临时工程（1000 章）首次建索引 3.00s；无变更复跑 `scanned=0`；改动 1 章 `scanned=1 / from_index=999`（0.06s，未动的 999 章全部复用缓存）；新增 1 章 `total=1001`；删除 1 章记 `removed_entries=1` 且不触发重扫；`lookup` 按章号 O(1) 取路径。`context_pack --max-total 4000` 下预算按角色权重切分，当前章保底 25% 不被挤没；`run_tests.py --list-shards 3` 输出 5/8/7 均衡方案，逐片执行与全量结果一致。
+- 过程中修复并回归：README 亮点段 bump 错位改为 insert_before 保留历史段（lint 占位闸门同步落地）；`release_check --strict` 的 tag KeyError；冒烟清单补齐并新增登记闸门（含反例测试：多一个未登记工具、少一个已登记工具均判失败）。
+
+---
+
 ## v7.44（2026-10-12）：主文件瘦身与语义兜底版
 
 ### 更新

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from config import SKILL_VERSION
 SEARCH_DIRS=("mind","大纲","设定",".story-review")
@@ -48,6 +49,10 @@ def render(report):
     return "\n".join(lines)
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap=argparse.ArgumentParser(description=f"本地项目记忆检索 v{SKILL_VERSION}")
     ap.add_argument("project"); ap.add_argument("query"); ap.add_argument("--limit",type=int,default=12); ap.add_argument("--context",type=int,default=1); ap.add_argument("--json",action="store_true")
     args=ap.parse_args(argv); root=Path(args.project).expanduser()

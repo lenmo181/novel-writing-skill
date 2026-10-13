@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""检查并安全更新网络小说创作技能（v7.44）。
+"""检查并安全更新网络小说创作技能（v7.45）。
 
 默认只检查 SkillHub 版本；只有明确使用 --update/--auto 且确认后才替换本地技能。
 更新只影响 Codex 技能目录，不触碰用户的小说项目目录。
@@ -338,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     try:
         return check_or_update(args)

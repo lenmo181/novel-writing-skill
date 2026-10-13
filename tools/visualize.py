@@ -639,6 +639,10 @@ def apply_template(html, data_json, title, ver):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="生成小说项目可视化看板（看板.html）")
     ap.add_argument("root", nargs="?", default=".", help="小说项目根目录")
     ap.add_argument("--no-open", action="store_true", help="生成后不打开浏览器")
