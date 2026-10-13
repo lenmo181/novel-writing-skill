@@ -66,8 +66,6 @@
 - 四件套：`lint_skill.py`（v7.44，观察期机制无报警）、`check_refs.py`（相对引用零悬空）、`eval_skill.py --json`（16 场景）、`doctor.py --runtime-smoke --package-smoke`（目录树登记 **88/88**，新增 3 手册 + review_skeleton；工具入口冒烟 33/33；包解压自检通过）。
 - 瘦身量化：SKILL.md 89,429 B / 868 行 → **约 35KB / 277 行**；外置 目录结构 9.7KB、指令速查 6.6KB、30项校验明细 10.3KB。
 
-- 待补：回归条数、四件套结果、真机实测结论
-
 ---
 
 ## v7.43（2026-10-12）：发布链工程化版
