@@ -1,0 +1,89 @@
+identity:
+  name: check_chapter
+  author: yuchen
+  label:
+    en_US: Check Chapter
+    zh_Hans: 章节硬卡校验
+description:
+  human:
+    en_US: Run the 13 mechanical hard-checks on one chapter's text and get a pass/fail report.
+    zh_Hans: 对单章正文跑 13 项机械硬卡，得到通过与硬伤清单。
+  llm: Run the 13 mechanical hard checks of the Web Novel Writing skill on a single chapter. Checks word count band, format, dialogue ratio, AI-flavor index, text-wall paragraphs, and conflict score. Returns exit code plus a human-readable report; exit code 1 means the chapter has hard defects and must not be delivered.
+parameters:
+  - name: chapter_text
+    type: string
+    required: true
+    label:
+      en_US: Chapter text
+      zh_Hans: 章节正文
+    human_description:
+      en_US: Paste the full chapter text (Markdown or plain text).
+      zh_Hans: 粘贴本章全文（Markdown 或纯文本）。
+    llm_description: The full text of the chapter to validate.
+    form: llm
+  - name: chapter_index
+    type: number
+    required: false
+    label:
+      en_US: Chapter number
+      zh_Hans: 章号
+    human_description:
+      en_US: Chapter number. Chapters 1-3 additionally trigger the opening gate.
+      zh_Hans: 章号。第 1-3 章会额外启用黄金开篇闸门。
+    llm_description: The 1-based chapter number. Values 1-3 enable the opening-gate checks.
+    form: llm
+  - name: platform
+    type: select
+    required: false
+    label:
+      en_US: Platform preset
+      zh_Hans: 平台预设
+    human_description:
+      en_US: Platform preset that overrides the default word-count band and dialogue ratio range.
+      zh_Hans: 平台预设，覆盖默认字数带与对话占比区间。
+    llm_description: Optional platform preset overriding word-count band and dialogue ratio.
+    options:
+      - value: ""
+        label:
+          en_US: Default (Fanqie standard)
+          zh_Hans: 默认（番茄标准）
+      - value: fanqie
+        label:
+          en_US: Fanqie
+          zh_Hans: 番茄
+      - value: qidian
+        label:
+          en_US: Qidian
+          zh_Hans: 起点
+      - value: zhihu
+        label:
+          en_US: Zhihu Yanxuan
+          zh_Hans: 知乎盐选
+    form: llm
+  - name: quote
+    type: select
+    required: false
+    label:
+      en_US: Quotation style
+      zh_Hans: 引号口径
+    human_description:
+      en_US: Dialogue quotation style used by the text.
+      zh_Hans: 正文使用的对话引号口径。
+    llm_description: Dialogue quotation style. chal = Chinese curly quotes, straight = ASCII double quotes, any = accept both.
+    options:
+      - value: chal
+        label:
+          en_US: Chinese curly quotes
+          zh_Hans: 中文弯引号
+      - value: straight
+        label:
+          en_US: Straight double quotes
+          zh_Hans: 半角双引号
+      - value: any
+        label:
+          en_US: Accept both
+          zh_Hans: 不限
+    form: llm
+extra:
+  python:
+    source: tools/check_chapter.py

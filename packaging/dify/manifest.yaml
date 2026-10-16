@@ -1,0 +1,34 @@
+version: 0.0.15
+type: plugin
+author: yuchen
+name: web_novel_writing
+label:
+  en_US: Web Novel Writing Validator
+  zh_Hans: 网络小说创作校验
+description:
+  en_US: Mechanical validators and delivery gates for long-form Chinese web-novel authoring. Run the 13 chapter hard-checks (word count, format, dialogue ratio, AI-flavor index, text-wall, conflict score) inside any Dify workflow.
+  zh_Hans: 超长篇中文网文的机械校验与交付闸门。在任意 Dify 工作流中调用 13 项章节硬卡（字数 / 格式 / 对话占比 / AI 味 / 文字墙 / 冲突值），卡住不合格草稿。
+icon: icon.svg
+resource:
+  memory: 268435456
+  permission:
+    tool:
+      enabled: true
+plugins:
+  tools:
+    - provider/web_novel_writing.yaml
+meta:
+  version: 0.0.1
+  arch:
+    - amd64
+    - arm64
+  runner:
+    language: python
+    version: "3.12"
+    entrypoint: main
+created_at: 2026-10-16T00:00:00Z
+privacy: PRIVACY.md
+tags:
+  - writing
+  - productivity
+  - content-creation

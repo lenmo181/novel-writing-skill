@@ -1,0 +1,15 @@
+identity:
+  name: list_validators
+  author: yuchen
+  label:
+    en_US: List Validators
+    zh_Hans: 列出校验器
+description:
+  human:
+    en_US: List the available read-only validators and where they live.
+    zh_Hans: 列出可用的只读校验器及其位置。
+  llm: List the read-only validators bundled with the Web Novel Writing skill plugin, along with the resolved scripts directory and skill root. Use this to discover which validators exist before chaining further checks.
+parameters: []
+extra:
+  python:
+    source: tools/list_validators.py

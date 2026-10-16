@@ -24,7 +24,8 @@ DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
-                ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests"}
+                ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests",
+                "packaging"}
 EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store",
                  ".editorconfig", ".gitattributes"}
 EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -53,7 +54,11 @@ description_zh: "面向超长篇网文的工业化创作引擎：一个入口覆
 description_en: "An industrial-grade writing engine for long-form Chinese web novels: project setup, chapter drafting, short stories, vertical-drama scripts, market trend research, book deconstruction, legacy manuscript import, review, AI-flavor removal, read-through smoothing, cover generation, dashboards and unattended daily writing. Every chapter must pass a 30-item quality gate before delivery."
 category: writing
 version: %s
-author: 豫晨""" % VER
+author: 豫晨
+slug: web-novel-writing
+displayName: 网络小说创作技能
+summary: 面向超长篇网文的工业化创作引擎，一个入口覆盖初始化项目、写章续写、短篇、短剧剧本、扫榜选题、拆书学习、导入旧书、审校诊断、去AI味、通读顺滑、扩写润色、朱雀与墨尺AI检测、封面生成、可视化看板与无人值守日更；每章强制跑 30 项校验，不达标禁止交付。
+license: Apache-2.0""" % VER
 
 
 def log(*a):
@@ -66,6 +71,7 @@ if os.path.exists(STAGE_ROOT):
 os.makedirs(STAGE)
 
 copied = 0
+skipped_noext = []
 for dp, dns, fns in os.walk(ROOT):
     rel = os.path.relpath(dp, ROOT)
     if rel == ".":
@@ -73,7 +79,13 @@ for dp, dns, fns in os.walk(ROOT):
     else:
         dns[:] = [d for d in dns if d not in EXCLUDE_DIRS]
     for fn in fns:
-        if fn in EXCLUDE_FILES or fn.endswith(".pyc") or os.path.splitext(fn)[1].lower() in EXCLUDE_EXTENSIONS:
+        ext = os.path.splitext(fn)[1].lower()
+        if fn in EXCLUDE_FILES or fn.endswith(".pyc") or ext in EXCLUDE_EXTENSIONS:
+            continue
+        if ext == "":
+            # SkillHub 服务端拒绝无扩展名文件（400 不允许的文件类型，如 LICENSE/NOTICE）；
+            # 许可证改由 SKILL.md frontmatter 的 license 字段声明
+            skipped_noext.append(os.path.relpath(os.path.join(dp, fn), ROOT).replace("\\", "/"))
             continue
         src = os.path.join(dp, fn)
         relp = os.path.relpath(src, ROOT)
@@ -82,6 +94,8 @@ for dp, dns, fns in os.walk(ROOT):
         shutil.copy2(src, dst)
         copied += 1
 log("[1/6] 复制完成：%d 个文件" % copied)
+if skipped_noext:
+    log("    跳过无扩展名文件（SkillHub 拒绝该类型）：" + ", ".join(sorted(skipped_noext)))
 
 # ---------- 2. tools/ -> scripts/ ----------
 old_tools = os.path.join(STAGE, "tools")
