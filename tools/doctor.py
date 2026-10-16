@@ -29,8 +29,7 @@ REQUIRED_DIRS = ("references", "templates", "tools", "versions", "schemas")
 REQUIRED_FILES = (
     "SKILL.md",
     "README.md",
-    "LICENSE",
-    "NOTICE",
+    # LICENSE / NOTICE 为无扩展名文件，SkillHub 发布包不含（许可证改由 SKILL.md frontmatter 的 license 字段声明），故不硬性要求
     "CONTRIBUTING.md",
     "templates/项目模板.md",
     "SECURITY.md",

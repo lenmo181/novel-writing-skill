@@ -23,11 +23,14 @@ def verify(zip_path, version):
             raise ValueError("ZIP 为空或含重复条目")
         for name in names:
             parts = PurePosixPath(name).parts
+            base = PurePosixPath(name).name
             if (not parts or parts[0] != SKILL_NAME or ".." in parts or "\\" in name
                     or any(part.startswith(".") or part == "__pycache__" for part in parts)
                     or name.endswith((".pyc", ".pyo"))):
                 raise ValueError(f"非法 ZIP 条目：{name}")
-        required = ("SKILL.md", "README.md", "LICENSE", "NOTICE", "SECURITY.md", "CONTRIBUTING.md",
+            if base and "." not in base:
+                raise ValueError(f"非法 ZIP 条目（无扩展名，SkillHub 会拒绝）：{name}")
+        required = ("SKILL.md", "README.md", "SECURITY.md", "CONTRIBUTING.md",
                     "scripts/config.py", "scripts/sync_skill.ps1", "scripts/mochi_setup.py",
                     "schemas/chapter_semantic_review.schema.json", "schemas/chapter_readiness.schema.json",
                     "schemas/full_review_queue.schema.json", "schemas/project_metadata.schema.json",
@@ -49,6 +52,13 @@ def verify(zip_path, version):
             fields[key] = value.strip()
         if fields.get("name") != "web-novel-writing" or fields.get("version") != version + ".0":
             raise ValueError("包内技能名称或版本与源配置不一致")
+        # SkillHub CLI 发布前置校验：LICENSE/NOTICE 因无扩展名已被排除，许可证改由 frontmatter 声明
+        if not fields.get("license"):
+            raise ValueError("包内缺少 frontmatter license 声明")
+        if fields.get("slug") != "web-novel-writing":
+            raise ValueError("包内缺少 CLI 发布所需的 slug（且须与技能名一致）")
+        if not fields.get("displayName"):
+            raise ValueError("包内缺少 CLI 发布所需的 displayName")
         package_config = archive.read(f"{SKILL_NAME}/scripts/config.py").decode("utf-8")
         if not re.search(r'^SKILL_VERSION = ["\']' + re.escape(version) + r'["\']\s*$', package_config, re.M):
             raise ValueError("包内 config.py 版本不一致")
