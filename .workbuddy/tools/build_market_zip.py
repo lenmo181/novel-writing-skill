@@ -24,7 +24,8 @@ DIST = os.path.join(ROOT, "dist")
 ZIP_PATH = os.path.join(DIST, "%s_v%s_skillhub.zip" % (SKILL_NAME, VER))
 
 EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
-                ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests"}
+                ".idea", ".vscode", ".playwright-cli", ".github", "dist", "out", "tests",
+                "packaging"}
 EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store",
                  ".editorconfig", ".gitattributes"}
 EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}

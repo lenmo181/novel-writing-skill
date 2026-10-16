@@ -40,8 +40,11 @@ REF_RE = re.compile(
     r"|(?:references|templates|tools|versions)/[^\s`\"'（）()\[\]【】《》<>、，。；：!?！？]+?\.(?:md|py)"
     r")")
 
-# 扫描时排除的目录（历史存档 / 缓存）
-SKIP_DIRS = {"versions", ".git", "__pycache__", ".v2c", ".video_agent", ".workbuddy", "dist", "out"}
+# 扫描时排除的目录（历史存档 / 缓存 / 不随包分发的分发封装）
+# packaging/ 是构建期分发封装（MCP/PyPI/Dify），与 .workbuddy 同类：不随技能包分发，
+# 其文档里出现的 tools/xxx.py 是"包内相对路径"写法，会与本仓库 tools/ 同名冲突，故整体跳过。
+SKIP_DIRS = {"versions", ".git", "__pycache__", ".v2c", ".video_agent", ".workbuddy",
+             "dist", "out", "packaging"}
 
 
 def iter_md_files(root):

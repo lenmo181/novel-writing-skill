@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.lenmo181/novel-writing-skill",
+  "description": "Mechanical validators and delivery gates for long-form Chinese web-novel authoring: chapter hard-checks (word count, format, dialogue ratio, AI-flavor index, text-wall), delivery-readiness gate, continuity/conflict scans, and skill self-diagnostics.",
+  "version": "7.46.0",
+  "repository": {
+    "url": "https://github.com/lenmo181/novel-writing-skill",
+    "source": "github",
+    "subfolder": "packaging/mcp"
+  },
+  "websiteUrl": "https://skillhub.cn/skills/user_cd8383ec/web-novel-writing",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "web-novel-writing-mcp",
+      "version": "7.46.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NOVEL_SKILL_ROOT",
+          "description": "Optional. Path to an externally installed skill package. Leave unset to use the full skill bundled inside the wheel.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NOVEL_PROJECT_ROOT",
+          "description": "Optional. Default root directory for user novel projects (e.g. D:/novels).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "novel-skill-wheelbuilder",
+      "version": "1.0.0",
+      "license": "Apache-2.0",
+      "author": "豫晨",
+      "tags": [
+        "writing",
+        "novel",
+        "chinese",
+        "web-novel",
+        "creative-writing",
+        "validation",
+        "linting",
+        "content-creation",
+        "agent-skills"
+      ]
+    }
+  }
+}

@@ -6,3 +6,6 @@ out/
 .workbuddy/tmp/
 dist/
 .playwright-cli/
+# packaging/ 的生成物（源文件需提交，生成物不入库）
+packaging/pypi/build_pkg/
+packaging/dify/_skill/

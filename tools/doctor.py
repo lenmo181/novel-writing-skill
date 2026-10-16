@@ -206,10 +206,25 @@ def _check(label: str, ok: bool, detail: str, fix: str = "") -> dict:
 
 # 目录树登记完整性（v7.40）：仓库基础设施与运行产物不要求登记
 # 豁免范围与上架包一致（build_market_zip.py）：tests/ 与仓库基础设施文件不随技能包分发
+# v7.46：packaging/（MCP/PyPI 封装）与 assets/（发布物料图）同样不随包分发，
+# 但曾经登记进 references/目录结构.md —— 上架包里就变成「登记但不存在」的幽灵条目。
+# 故把豁免判据同时作用于「登记侧」与「磁盘侧」，三态（仓库/上架包/wheel）口径统一。
 TREE_EXCLUDED_PARTS = {".git", ".github", ".workbuddy", ".v2c", ".video_agent",
-                       ".playwright-cli", "dist", "out", "__pycache__", "tests"}
-TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "_meta.json", "交流群二维码.png"}
+                       ".playwright-cli", "dist", "out", "__pycache__", "tests",
+                       "packaging", "assets"}
+TREE_EXCLUDED_FILES = {"LICENSE", "NOTICE", "CONTRIBUTING.md", "SECURITY.md", "_meta.json",
+                       "交流群二维码.png", "icon_512.png"}
 TREE_TREE_LINE_RE = re.compile(r"^[│\s]*[├└]──\s*(.+)$")
+
+
+def _tree_excluded(rel_posix: str) -> bool:
+    """该相对路径是否属于「不随技能包分发」范畴（登记侧与磁盘侧同源判据）。"""
+    parts = rel_posix.split("/")
+    if any(p in TREE_EXCLUDED_PARTS or p.startswith(".") for p in parts[:-1]):
+        return True
+    if parts[-1].startswith("."):
+        return True
+    return rel_posix in TREE_EXCLUDED_FILES
 
 
 def load_tree_doc(root: Path) -> str:
@@ -262,6 +277,9 @@ def parse_skill_tree(skill_text: str) -> tuple[set, set]:
             registered.add(entry)
         else:
             registered.add(f"{current_dir}{entry}")
+    # 登记侧同样应用豁免判据：不随包分发的文件不参与一致性比对，
+    # 否则在「文件已被构建排除、登记行仍在」的包里会误报幽灵条目。
+    registered = {r for r in registered if not _tree_excluded(r)}
     exempt = {d for d in dir_entries if not any(r.startswith(d) for r in registered)}
     return registered, exempt
 
@@ -274,10 +292,7 @@ def tree_registry_report(root: Path, skill_text: str) -> dict:
         rel = path.relative_to(root)
         if not path.is_file():
             continue
-        parts = rel.parts
-        if any(p in TREE_EXCLUDED_PARTS or p.startswith(".") for p in parts[:-1]) or parts[-1].startswith("."):
-            continue
-        if rel.as_posix() in TREE_EXCLUDED_FILES:
+        if _tree_excluded(rel.as_posix()):
             continue
         if any(rel.as_posix().startswith(d) for d in exempt):
             continue

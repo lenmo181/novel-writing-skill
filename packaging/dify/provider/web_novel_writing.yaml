@@ -1,0 +1,19 @@
+identity:
+  author: yuchen
+  name: web_novel_writing
+  label:
+    en_US: Web Novel Writing
+    zh_Hans: 网络小说创作
+  description:
+    en_US: Mechanical validators and delivery gates for long-form Chinese web-novel authoring.
+    zh_Hans: 超长篇中文网文的机械校验与交付闸门。
+  icon: icon.svg
+  tags:
+    - writing
+    - productivity
+tools:
+  - tools/check_chapter.yaml
+  - tools/list_validators.yaml
+extra:
+  python:
+    source: provider/web_novel_writing.py
