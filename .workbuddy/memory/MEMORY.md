@@ -53,7 +53,7 @@
   - `packaging/mcp/`：MCP Server（`server.py` + `server.json` + `README.md`）
   - `packaging/pypi/`：`build_wheel.py`（纯标准库 wheel 构建器）+ `README.md`
   - `packaging/dify/`：Dify 插件骨架 + `bundle_skill.py`
-- **doctor 豁免必须双向**：`doctor.py` 的 `_tree_excluded()` 同时过滤**磁盘侧**（`on_disk`）与**登记侧**（`registered`）。只豁免一侧 → 被构建排除却仍登记的文件会变成「登记但不存在」幽灵条目，**已发布的包会直接报「需要修复」**。`TREE_EXCLUDED_PARTS` 含 `packaging`/`assets`，`TREE_EXCLUDED_FILES` 含 `icon_512.png`。三态（仓库/上架包/wheel）应统一为 **91/91**。
+- **doctor 豁免必须双向**：`doctor.py` 的 `_tree_excluded()` 必须同时过滤**磁盘侧**（`on_disk`）与**登记侧**（`registered`）。只豁免一侧 → 被构建排除却仍登记的文件会成为「登记但不存在」幽灵条目，**下一次发版的上架包/wheel 会直接报「需要修复」**（仓库态因为文件都在，反而看不出来——所以这个坑只在构建产物里暴露）。`TREE_EXCLUDED_PARTS` 含 `packaging`/`assets`，`TREE_EXCLUDED_FILES` 含 `icon_512.png`。三态（仓库/上架包/wheel）应统一为 **91/91**。
 - `check_refs.py` 的 `SKIP_DIRS` 同样含 `packaging`——其文档里的 `tools/xxx.py` 是"包内相对路径"写法，会与本仓库 `tools/` 同名冲突。
 - **PyPI wheel 必须打包「整个技能包」**：放在 `web_novel_writing_mcp/_skill/`。原因有二——① `config.py` 的 `skill_root()` = `parents[1]`，脚本必须在 `_skill/tools/`；② `doctor.py`/`lint_skill.py`/`eval_skill.py` 需要完整技能骨架才能通过。
 - **构建器用纯标准库**（`zipfile`+`hashlib`），环境里没有 `build`/`setuptools`，且与本技能「零第三方依赖」约束一致。构建器自带自检：`pip install --target` → MCP 握手 → 调 `doctor`。
