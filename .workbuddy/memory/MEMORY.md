@@ -33,3 +33,16 @@
 - 市场展示名称：网络小说创作技能 · 作者：豫晨 · 分类：writing · **版本：7.46.0**（已提交，安全审核中，skillId 205643）
 - 开放平台：https://open.workbuddy.cn
 - SkillHub 技能页：https://skillhub.cn/skills/user_cd8383ec/web-novel-writing
+
+## 多平台发布路线（2026-10-16 起）
+
+- **已上架渠道**：SkillHub（v7.45/7.46 安全审核中）、Qoder 能力市场、**魔搭 ModelScope**。
+- **魔搭 ModelScope（已走通，可全自动）**：端点 `https://www.modelscope.cn/openapi/v1`——注意 `www.modelscope.cn/api/v1/users/me` 会 400，**必须走 `/openapi/v1`**。三步 = `POST /files/upload`（`-F type=skill`）取 `data.id` → `POST /skills`（owner/skill_name/display_name/skill_file/category）→ `PATCH /skills/{owner}/{name}/settings`（description/source_url/license/category/tags 生效）。打包用 `.workbuddy/tools/build_modelscope_zip.py`（要求 zip 根目录恰好 1 个 SKILL.md）。技能页：https://www.modelscope.cn/skills/lenmo181/web-novel-writing
+  - **边界**：`logo_url` **只收 URL 不收上传返回的 id**；`locales` / `description_en` 字段返回 success 但**静默忽略**，英文描述只能进网页控制台补；tags 回读会自动加 `category:` / `license:` / `custom_tag:` 前缀。
+- **WorkBuddy 开放平台**：被「深度合成-AI创作」类目卡死（该类目仅**企业认证**可用），个人账号走不通，已搁置。
+- **Claude directory**：需**付费 Claude 计划**，用户暂无 → 跳过。
+- **TRAE 技能市场**：**未开放自助上架**（官方论坛明确回复），只能邮件 `feedback@mail.trae.cn` 申请。
+- **扣子 Coze 技能商店**：个人版可上架，但技能须在**扣子编程侧创建**（提示词/工作流形态，非传 SKILL.md），需先申请「技能上架资质」+ 备 **3 个精选案例**（带链接与图片）。
+- **Tier C（需改形态）**：Dify（`.difypkg` + 英文 README + 隐私政策 + PR 到 `langgenius/dify-plugins`）、MCP 注册表（封装 MCP Server）、元器/文心（智能体 Bot）。
+- **海外渠道需英文物料**：仓库根已加 `README.en.md`，并登记进 `references/目录结构.md`。
+- ⚠️ **新增文件必须登记目录树**：`doctor.py` 会拦「未登记文件」，登记真源 = `references/目录结构.md`（v7.44 起自 SKILL.md 外置）。
