@@ -8,7 +8,8 @@
 
 ## 上架包构建约定
 
-- 构建 = `python .workbuddy/tools/build_market_zip.py`，输出 `dist/网络小说创作技能_v<VER>_market.zip`。
+- 构建 = `python .workbuddy/tools/build_market_zip.py`，输出 `dist/网络小说创作技能_v<VER>_skillhub.zip`。
+- **v7.46 起构建已内置 SkillHub 契约**：包内 SKILL.md 自动补 `slug`/`displayName`/`summary`/`license`(Apache-2.0)，并跳过无扩展名文件（LICENSE/NOTICE）→ dist 包可直接 `skillhub publish <zip>`，无需人工改动。`verify_pack.py` 已成可发布性门禁（拦无扩展名条目 + 查 slug/displayName/license）。
 - **源目录零改动**：所有脱敏/改名/补字段只发生在 `.workbuddy/tmp/stage/` 构建副本里。
 - 硬性排除：`.git/`、`.workbuddy/`、`.v2c/`、`.video_agent/`、`__pycache__/`、`out/`。
 - `out/` 永不进包——里面是热榜取证的**第三方作品正文**与本作者作品看板截图，公开分发有版权与首发风险。
@@ -29,6 +30,6 @@
 
 ## 平台提交信息（当前）
 
-- 市场展示名称：网络小说创作技能 · 作者：豫晨 · 分类：writing · **版本：7.45.0**（已提交，安全审核中，skillId 205643）
+- 市场展示名称：网络小说创作技能 · 作者：豫晨 · 分类：writing · **版本：7.46.0**（已提交，安全审核中，skillId 205643）
 - 开放平台：https://open.workbuddy.cn
 - SkillHub 技能页：https://skillhub.cn/skills/user_cd8383ec/web-novel-writing
