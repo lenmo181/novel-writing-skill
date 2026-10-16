@@ -4,12 +4,18 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.45**（2026-10-12）
+> **当前版本：v7.46**（2026-10-16）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
+
+## v7.46 本轮升级重点
+
+- **发布包直接可被 SkillHub CLI 发布**：`build_market_zip.py` 现在在包内 `SKILL.md` 的 frontmatter 补出 CLI 必需的驼峰字段 `slug` / `displayName`（并补 `summary` / `license`），同时把无扩展名的 `LICENSE` / `NOTICE` 排除出包——SkillHub 服务端对无扩展名文件直接 `400 不允许的文件类型`。结果是 `dist/*_skillhub.zip` 无需任何人工改动即可 `skillhub publish <zip>` 一条命令发布，为接 CI 自动发版铺平。
+- **发布包校验成为可发布性门禁**：`verify_pack.py` 新增「无扩展名条目即拦截」和 `slug` / `displayName` / `license` 必需字段校验；此前它反而硬要求 `LICENSE` / `NOTICE`，与 SkillHub 服务端契约正面冲突。同步移除了包内 `doctor.py` 对这两个文件的硬要求，消除解压后自检的「缺少 LICENSE, NOTICE」误报。
+- 许可证改由 frontmatter `license: Apache-2.0` 声明（仓库根目录仍保留 `LICENSE` / `NOTICE` 供源码分发）。
 
 ## v7.45 本轮升级重点
 
@@ -526,7 +532,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.45**
+当前版本：**v7.46**
 
 历史版本：[versions/](versions/)
 
@@ -534,6 +540,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.46**：发布包剔除无扩展名文件并补齐 SkillHub CLI 必需字段（slug/displayName/license），包内 doctor 自检与许可证声明对齐
 - **v7.45**：章节索引与增量扫描、上下文预算控制器、测试分片
 - **v7.44**：审校骨架生成器、语义弱证据降级、规则观察期到期机制、SKILL.md 瘦身至 50KB 以下
 - **v7.43**：一键改版工具 bump_version.py、日期真源闸门、发布链 tag 与同号包门禁

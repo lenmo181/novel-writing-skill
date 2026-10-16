@@ -3,6 +3,31 @@
 > **v7.40 起版本历史唯一真源**（SKILL.md 不再内嵌版本历史，主文件只留一行指针）。
 > 版本日志四段式约定：每版分「更新 / 修复 / 降级删除 / 验证证据」四段（2026-09-30 用户裁定）。
 
+## v7.46（2026-10-16）：发布链打包契约对齐版
+
+### 更新
+
+- **发布包直接可被 SkillHub CLI 发布**：`build_market_zip.py` 在包内 `SKILL.md` 的 frontmatter 补出 SkillHub CLI 必需的驼峰字段 `slug` / `displayName`，并补 `summary` / `license`；此前包内只有下划线的 `name` / `display_name`，CLI 校验 `缺少 slug / displayName` 会直接拒绝。改后 `dist/*_skillhub.zip` 无需任何人工改动即可 `skillhub publish <zip>` 一条命令发布。
+- **`verify_pack.py` 升级为可发布性门禁**：新增「无扩展名条目即拦截」与 `slug` / `displayName` / `license` 必需字段校验。
+
+### 修复
+
+- **发布包被 SkillHub 服务端拒收**：包内 `LICENSE` / `NOTICE` 是无扩展名文件，服务端以 `400 不允许的文件类型` 直接拒绝。`build_market_zip.py` 复制阶段改为跳过无扩展名文件，并打印跳过清单；许可证改由 frontmatter `license: Apache-2.0` 声明。
+- **包内 `doctor.py` 自检误报**：`REQUIRED_FILES` 仍硬要求 `LICENSE` / `NOTICE`，与上一条冲突，导致 SkillHub 发布包解压后自检报「缺少：LICENSE, NOTICE / 需要修复」。已把二者移出必需清单（`TREE_EXCLUDED_FILES` 早已将其排除在目录树登记外，两者口径现已一致）。
+- **`verify_pack.py` 与 SkillHub 契约冲突**：原 `required` 硬要求 `LICENSE` / `NOTICE`，与「服务端拒绝无扩展名文件」正面矛盾；已移除，并以新增的字段校验补回同等强度的门禁。
+
+### 降级删除
+
+- 发布包不再内嵌 `LICENSE` / `NOTICE` 两个无扩展名文件（许可证改由 frontmatter 声明）。仓库根目录仍保留二者，供源码分发与 GitHub 展示。
+
+### 验证证据
+
+- 构建：`build_market_zip.py` 全绿——97 文件（跳过无扩展名 `LICENSE` / `NOTICE`）、包内 `doctor/lint/check_refs/eval` 四脚本全部 `exit=0`、最终 ZIP 校验通过（0.43MB / 上限 3MB）。
+- 全量回归：`tools/run_tests.py` **251 项 OK**（改动 `doctor.py` 必需文件清单后无回归）。
+- 发布链实证：`skills_store_cli.py publish dist/网络小说创作技能_v7.46.0_skillhub.zip --dry-run` → `✓ Dry-run passed: web-novel-writing@7.46.0`。
+
+---
+
 ## v7.45（2026-10-12）：超长篇规模化版
 
 ### 更新
