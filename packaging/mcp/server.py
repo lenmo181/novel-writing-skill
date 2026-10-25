@@ -38,7 +38,7 @@ from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "web-novel-writing"
-SERVER_VERSION = "7.50.0"
+SERVER_VERSION = "7.51.0"
 DEFAULT_TIMEOUT = 300
 
 # 只暴露无默认写盘副作用的脚本；写盘类脚本刻意排除

@@ -3,7 +3,7 @@
 gen_index.py — 扫描 书稿/ 生成 mind/章节目录.md（v7.34）
 用法: python gen_index.py [项目根目录] [--dry-run]
 
-列: 章号 | 标题 | 字数 | 节奏类型 | 校验结果 | 完成日期
+列: 章号 | 卷号 | 标题 | 字数 | 节奏类型 | 校验结果 | 完成日期
     （旧表中存在的额外列，如「冲突值」「对话占比」，会被保留并追加在末尾）
 
 合并策略（核心，不可简化）:
@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True  # 复用 check_chapter 时不生成 __pycache__ 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_chapter  # noqa: E402  （复用字数口径与正文行切分）
 
-STD_COLS = ["章号", "标题", "字数", "节奏类型", "校验结果", "完成日期"]
+STD_COLS = ["章号", "卷号", "标题", "字数", "节奏类型", "校验结果", "完成日期"]
 
 CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
@@ -126,6 +126,46 @@ def collect_chapters(book_dir):
     return out
 
 
+def parse_volume_ranges(project):
+    """读取卷纲中的「起止章」，为章节目录补出卷号。
+
+    只使用明确的数字范围（如 ``1-30``、``31~60``）；未填完的卷纲不猜测，
+    让作者在章节目录中确认卷号。返回值按卷号排序，兼容旧卷纲列名。
+    """
+    path = os.path.join(project, "大纲", "卷纲.md")
+    if not os.path.isfile(path):
+        return []
+    header = None
+    ranges = []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if "|" not in line:
+                continue
+            cells = [c.strip().replace("**", "") for c in line.strip().strip("|").split("|")]
+            if all(c == "" or set(c) <= set("-: ") for c in cells):
+                continue
+            if header is None:
+                if "卷号" in cells:
+                    header = cells
+                continue
+            if not cells or not re.fullmatch(r"\d+", cells[0]):
+                continue
+            row = dict(zip(header, cells))
+            span = row.get("起止章") or row.get("起止章节") or row.get("章节范围") or ""
+            nums = [int(value) for value in re.findall(r"\d+", span)]
+            if len(nums) >= 2 and nums[1] >= nums[0]:
+                ranges.append((nums[0], nums[1], int(cells[0])))
+    return sorted(ranges, key=lambda item: (item[0], item[1], item[2]))
+
+
+def volume_for_chapter(number, ranges):
+    """按卷纲范围推断章节所属卷；跨界或未填范围时返回空串。"""
+    for start, end, volume in ranges:
+        if start <= number <= end:
+            return str(volume)
+    return ""
+
+
 def build(project, dry_run=False):
     book_dir = os.path.join(project, "书稿")
     mind_dir = os.path.join(project, "mind")
@@ -140,6 +180,7 @@ def build(project, dry_run=False):
         return 1
 
     old_header, old_rows, old_progress = parse_old_index(index_path)
+    volume_ranges = parse_volume_ranges(project)
     extra_cols = []
     if old_header:
         extra_cols = [c for c in old_header if c not in STD_COLS]
@@ -160,6 +201,7 @@ def build(project, dry_run=False):
             os.path.getmtime(path)).strftime("%Y-%m-%d")
         row = {
             "章号": str(num),
+            "卷号": old.get("卷号") or volume_for_chapter(num, volume_ranges),
             "标题": old.get("标题") or title or "",
             "字数": str(chars),
             "节奏类型": old.get("节奏类型", ""),
@@ -195,7 +237,10 @@ def build(project, dry_run=False):
         print(f"[!] 旧进度行记录已完成至第{old_done}章，但 书稿/ 只到第{max_num}章——保留旧进度行，请人工核对")
         progress = old_progress
     else:
-        progress = f"当前进度：已完成至第{max_num}章，下一章为第{max_num + 1}章"
+        current_volume = rows[-1].get("卷号", "") if rows else ""
+        volume_enabled = "卷号" in (old_header or []) or bool(volume_ranges)
+        volume_note = (f"；当前卷：第{current_volume}卷" if current_volume else "；当前卷：待定") if volume_enabled else ""
+        progress = f"当前进度：已完成至第{max_num}章{volume_note}，下一章为第{max_num + 1}章"
         if old_progress:
             m2 = re.search(r"下一章为第\s*\d+\s*章", old_progress)
             if m2:

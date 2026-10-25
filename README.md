@@ -4,12 +4,16 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.50**（2026-10-25）
+> **当前版本：v7.51**（2026-10-25）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
+
+## v7.51 本轮升级重点
+
+- **长篇强制分卷**：初始化项目生成卷纲与卷内里程碑；章节目录新增卷号，`tools/gen_index.py` 可按卷纲起止章自动补号；写章和续写先定位当前卷，适配番茄小说的卷结构。
 
 ## v7.50 本轮升级重点
 
@@ -572,7 +576,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.50**
+当前版本：**v7.51**
 
 历史版本：[versions/](versions/)
 
@@ -580,6 +584,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.51**：长篇写作强制分卷，卷纲与章节目录卷号联动，适配番茄小说卷结构。
 - **v7.50**：新增 TTNovels 三本同类小说结构研究、缓存和草稿原创性重合护栏，写章前可自动接入。
 - **v7.49**：事实台账+证据引文不可篡改+伏笔三层提醒+量化AI味指标；修复期待线悬空检查崩溃
 - **v7.48**：看板升级为十分区驾驶舱：写作热力/月度产出/质量矩阵/伏笔跨度，深色主题与 Ctrl+K 全局跳转

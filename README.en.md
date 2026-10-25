@@ -3,7 +3,7 @@
 [![CI](https://github.com/lenmo181/novel-writing-skill/actions/workflows/verify.yml/badge.svg)](https://github.com/lenmo181/novel-writing-skill/actions/workflows/verify.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> **Version: v7.50** (2026-10-25) · Author: Yuchen (豫晨) · License: Apache-2.0
+> **Version: v7.51** (2026-10-25) · Author: Yuchen (豫晨) · License: Apache-2.0
 > An industrial-grade authoring engine for long-form Chinese web novels, packaged as an **Agent Skill** — a single `SKILL.md` that runs on any Agent Skills–compatible assistant (WorkBuddy, Claude Code, Cursor, Codex, Gemini CLI, Qoder, TRAE, and 20+ more).
 
 This is not a prompt collection, and it is not a novel generator. It is a **traceable, verifiable, regressible production system** for writing Chinese web fiction at scale.
