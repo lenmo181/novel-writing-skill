@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.50）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.52）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
 import json
 from pathlib import Path
 import re
@@ -182,6 +182,7 @@ def main() -> int:
         "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py",
         "tools/full_review.py", "tools/lint_skill.py", "tools/repair_runner.py",
         "tools/fact_ledger.py",
+        "tools/chapter_brief.py", "tools/scene_continuity.py",
     ]
     for path in tool_paths:
         text = read(path)

@@ -4,12 +4,18 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-> **当前版本：v7.51**（2026-10-25）
+> **当前版本：v7.52**（2026-10-26）
 > 一个面向 ZCode / Codex / Claude Code 等 AI 编码助手的网文创作工程化技能：把“会写小说”变成可以初始化、检查、修复、复检、回滚和发布的工程流程。
 
 它不是单纯的提示词合集，也不是小说生成器。核心目标是建立一套**可追踪、可验证、可回归**的小说生产系统。
 
 ---
+
+## v7.52 本轮升级重点
+
+- **章节任务卡**：`tools/chapter_brief.py` 按实际前文和档案生成带来源哈希的写前约束卡，缺事实时停在 `needs_input`。
+- **场景连续性**：`tools/scene_continuity.py` 检查场景锚点、转场原因、视角、在场人物、时间/地点冲突和死亡角色再现。
+- **完整审查交付**：新增现状审查、升级架构、可替换章节写作提示词和 15 项针对性验证矩阵。
 
 ## v7.51 本轮升级重点
 
@@ -264,6 +270,15 @@ python tools/check_chapter.py "书稿/第001章_章节名.md"
 python tools/check_chapter.py "书稿/第001章_章节名.md" --ai-lite
 ```
 
+写下一章前先生成任务卡并做场景预检：
+
+```bash
+python tools/chapter_brief.py "<项目根>" 1 --write
+python tools/scene_continuity.py "<项目根>" --chapter 1 --json
+```
+
+任务卡为 `needs_input` 时先补齐事实和场景锚点；它不会替模型编造上一章事件。
+
 退出码：
 
 - 0：机械校验通过。
@@ -353,6 +368,8 @@ release_check
 | check_chapter.py | 单章机械校验 | 否 |
 | full_review.py | 全文诊断、问题队列、二审 | 写入 mind/报告与队列，不改正文 |
 | chapter_readiness.py | 章节交付 Gate | 否 |
+| chapter_brief.py | 写前章节任务卡与来源哈希 | 默认只读；`--write` 写任务卡 |
+| scene_continuity.py | 场景锚点、转场、视角与明确机械矛盾 | 否 |
 | repair_runner.py | 修复状态管理 | 只改队列 |
 | repair_orchestrator.py | 修复计划、机械修复编排、复检 | 默认不写正文 |
 | fix_said_tags.py | 对话引导语等机械修复 | 是，带备份机制 |
@@ -576,7 +593,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 程序版本真源：[tools/config.py](tools/config.py)
 
-当前版本：**v7.51**
+当前版本：**v7.52**
 
 历史版本：[versions/](versions/)
 
@@ -584,6 +601,7 @@ CI 配置：[.github/workflows/verify.yml](.github/workflows/verify.yml)
 
 最近版本重点：
 
+- **v7.52**：新增写前章节任务卡、场景锚点连续性检查与 15 项针对性回归测试
 - **v7.51**：长篇写作强制分卷，卷纲与章节目录卷号联动，适配番茄小说卷结构。
 - **v7.50**：新增 TTNovels 三本同类小说结构研究、缓存和草稿原创性重合护栏，写章前可自动接入。
 - **v7.49**：事实台账+证据引文不可篡改+伏笔三层提醒+量化AI味指标；修复期待线悬空检查崩溃

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""为续写、审校和接手旧书生成可追溯上下文包（v7.34）。
+"""为续写、审校和接手旧书生成可追溯上下文包（v7.52）。
 
 默认只读取项目内 canonical 档案与指定章节，不调用外部模型，不把上下文写入技能目录。
 若项目明确开启同类小说研究并允许联网，会先刷新 24 小时缓存的结构卡，再把
@@ -108,6 +108,7 @@ ROLE_WEIGHTS = {
     "similar-research": 0.5,
 }
 CURRENT_ROLE = "current-chapter"
+BRIEF_ROLE = "chapter-brief"
 
 
 def maybe_refresh_similar(root: Path) -> dict:
@@ -133,6 +134,9 @@ def plan_entries(root: Path, chapter, recent: int) -> list:
             plan.append((rel, role))
     if chapter is None:
         return plan
+    brief = root / "mind" / "章节任务卡" / f"第{chapter:03d}章任务卡.json"
+    if brief.is_file():
+        plan.append((brief.relative_to(root).as_posix(), BRIEF_ROLE))
     review = f"mind/回顾/第{chapter:03d}章回顾.md"
     if (root / review).is_file():
         plan.append((review, "current-review"))

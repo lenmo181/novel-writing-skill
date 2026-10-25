@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""bump_version.py — 网络小说创作技能 v7.51 一键改版工具。
+"""bump_version.py — 网络小说创作技能 v7.52 一键改版工具。
 
 背景
 ----

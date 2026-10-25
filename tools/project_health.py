@@ -17,6 +17,7 @@ from continuity_check import check as continuity_check
 from entity_index import build_index
 from fact_ledger import check as fact_ledger_check
 from project_audit import audit as project_audit
+from scene_continuity import check as scene_continuity_check
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -57,12 +58,15 @@ def health(root: Path) -> dict:
     audit = project_audit(root)
     continuity = continuity_check(root)
     facts = fact_ledger_check(root)
+    scenes = scene_continuity_check(root)
     for item in audit.get("issues", []):
         add_issue(issues, item["level"], item["code"], item["location"], item["message"], "project_audit")
     for item in continuity.get("issues", []):
         add_issue(issues, item["level"], item["code"], item["location"], item["message"], "continuity_check")
     for item in facts.get("issues", []):
         add_issue(issues, item["level"], item["code"], item["location"], item["message"], "fact_ledger")
+    for item in scenes.get("errors", []):
+        add_issue(issues, item["level"], item["code"], item["location"], item["message"], "scene_continuity")
 
     metadata_path = root / "项目元数据.json"
     metadata = {}

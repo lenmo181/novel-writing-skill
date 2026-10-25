@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.50）：默认工程 Gate + 可验证语义 Gate。
+"""章节交付 Gate（v7.52）：默认工程 Gate + 可验证语义 Gate。
 
 v7.49：语义 Gate 增加「证据引文不可篡改校验」——对标 AI_NovelGenerator 的
 CHAPTER_CHECK_QUOTE_MISMATCH。此前 evidence 只校验「非空字符串」，AI 可以
@@ -173,6 +173,7 @@ def assess(root, chapter, full=False, with_semantic=True):
         ("单章机械校验", [sys.executable, str(TOOLS / "check_chapter.py"), str(target)]),
         ("项目健康", [sys.executable, str(TOOLS / "project_health.py"), str(root)]),
         ("连续性检查", [sys.executable, str(TOOLS / "continuity_check.py"), str(root)]),
+        ("场景连续性", [sys.executable, str(TOOLS / "scene_continuity.py"), str(root), "--chapter", str(chapter), "--json"]),
         ("上下文可构建", [sys.executable, str(TOOLS / "context_pack.py"), str(root), "--chapter", str(chapter), "--format", "json"]),
     ]
     gates = [run_gate(n, c, root) for n, c in commands]

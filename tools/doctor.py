@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.50）。
+"""技能包统一自检（v7.52）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -62,6 +62,8 @@ REQUIRED_FILES = (
     "tools/project_health.py",
     "tools/full_review.py",
     "tools/chapter_readiness.py",
+    "tools/chapter_brief.py",
+    "tools/scene_continuity.py",
     "tools/repair_orchestrator.py",
     "tools/audit_log.py",
     "tools/memory_search.py",
@@ -109,6 +111,8 @@ RUNTIME_TOOLS = (
     "research_audit.py",
     "fact_ledger.py",
     "similar_novels.py",
+    "chapter_brief.py",
+    "scene_continuity.py",
 )
 
 # 无 CLI 入口的纯模块：被 import 使用，不以脚本方式运行，不进冒烟清单

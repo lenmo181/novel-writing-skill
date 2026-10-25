@@ -38,7 +38,7 @@ from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "web-novel-writing"
-SERVER_VERSION = "7.51.0"
+SERVER_VERSION = "7.52.0"
 DEFAULT_TIMEOUT = 300
 
 # 只暴露无默认写盘副作用的脚本；写盘类脚本刻意排除
@@ -68,13 +68,15 @@ READONLY_TOOLS = {
     "doctor.py",
     # v7.49：事实台账核验（只读）
     "fact_ledger.py",
+    "chapter_brief.py",
+    "scene_continuity.py",
 }
 
 # v7.47：只读通道参数黑名单——白名单脚本中多个支持 --out/--force 任意路径写盘
 # （chapter_readiness/chapter_diff/continuity_check/project_audit/project_health/
 # entity_index/research_audit/review_skeleton），
 # 经 run_skill_tool 透传即可放大为任意文件写，一律拒绝。
-BANNED_FLAGS = {"--out", "--force", "--encoding", "--package-smoke"}
+BANNED_FLAGS = {"--out", "--force", "--encoding", "--package-smoke", "--write"}
 
 
 # --------------------------------------------------------------------------- #
