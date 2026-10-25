@@ -41,8 +41,9 @@ class TestV732OpenSourceGap(unittest.TestCase):
         first = init_project.init_project(
             self.root, "雾城拾荒者", "都市悬疑", "番茄", "80万字"
         )
-        self.assertEqual(first["file_count"], 20)
-        self.assertEqual(len(first["created"]), 20)
+        # v7.49 增量：事实台账 + 同类小说研究配置
+        self.assertEqual(first["file_count"], 22)
+        self.assertEqual(len(first["created"]), 22)
         readme = self.root / "README.md"
         readme.write_text("# 作者已确认内容\n", encoding="utf-8")
         second = init_project.init_project(
@@ -52,6 +53,7 @@ class TestV732OpenSourceGap(unittest.TestCase):
         self.assertEqual(readme.read_text(encoding="utf-8"), "# 作者已确认内容\n")
         self.assertTrue((self.root / "mind/章节目录.md").is_file())
         self.assertTrue((self.root / ".story-review/state.md").is_file())
+        self.assertTrue((self.root / "研究/同类小说配置.json").is_file())
 
     def test_health_aggregates_structure_and_entity_issues(self):
         init_project.init_project(self.root, "雾城拾荒者")

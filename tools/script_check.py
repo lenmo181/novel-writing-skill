@@ -17,17 +17,24 @@ try:
 except Exception:
     pass
 
+# 与 check_chapter/retention 同口径：汉字+中文标点（v7.47：排除 U+3000 全角空格）
 COUNTABLE = re.compile(
     "[\u4e00-\u9fff\u3400-\u4dbf"
-    "\u3000-\u303f"
+    "\u3001-\u303f"
     "\uff00-\uffef"
     "\u2018\u2019\u201c\u201d\u2014\u2026]"
 )
-HANZI = re.compile("[\u4e00-\u9fff]")
-SCENE_HEAD = re.compile(r"^\s*\u573a\u666f\s*(\d+)\s*[\uff5c|]?\s*(\u5185\u666f|\u5916\u666f)")
+# v7.47：HANZI 补 Ext A——此前与 check_chapter 口径不一致，台词句含 Ext A
+# 生僻字时不计入 sent_all，「超20字台词句占比」分母偏小
+HANZI = re.compile("[\u4e00-\u9fff\u3400-\u4dbf]")
+# v7.47：场景头支持中文数字——「场景一 内景-…」手写剧本此前不识别，
+# 误报硬伤「未检出任何场景头」
+SCENE_HEAD = re.compile(r"^\s*\u573a\u666f\s*(\d+|[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343\u4e07]{1,3})\s*[\uff5c|]?\s*(\u5185\u666f|\u5916\u666f)")
 # 台词分隔冒号：全角为主、半角兼容（v7.30：混用半角冒号的剧本此前整段按旁白计，
 # 对白占比被系统性低估，可能触发 45% 硬卡误判）
-DIALOG = re.compile(r"^\s*([^\u25b3\u3010\u3011\u573a\u25b2][^\uff1a:]{0,14})[\uff1a:](.+)$")
+# v7.47：`(.*)` 替代 `(.+)`——空台词行「张三：」此前落入散行按旁白性文字计，
+# no_dlg_run 虚高可能触发"连续无对白"误报
+DIALOG = re.compile(r"^\s*([^\u25b3\u3010\u3011\u573a\u25b2][^\uff1a:]{0,14})[\uff1a:](.*)$")
 # v7.25：「暗道」作为实体名词（沿着暗道走）不再误判心理残留——须带心理前缀（心中暗道）或
 # 后接冒号/引号（暗道："……"）才算心理描写；心想/内心/默念/暗想 保留原判
 PSYCH = re.compile("\u5fc3\u60f3|\u5fc3\u4e2d\u6697|\u5185\u5fc3|\u9ed8\u5ff5|\u6697\u60f3"
@@ -50,14 +57,18 @@ def main():
     ap = argparse.ArgumentParser(description="章节剧本机械质检 v7.27（格式/占比/心理残留/卡点）")
     ap.add_argument("file")
     args = ap.parse_args()
-    if not os.path.exists(args.file):
+    # v7.47：isfile 替代 exists——目录输入时 exists 为 True 而 open() 抛
+    # IsADirectoryError 未捕获（traceback + exit 1）
+    if not os.path.isfile(args.file):
         print(f"[✗] 输入错误：找不到剧本文件 {args.file}")
         sys.exit(2)
-    lines = [l.rstrip() for l in open(args.file, encoding="utf-8", errors="replace").read().splitlines() if l.strip()]
+    # v7.47：utf-8-sig 剥 BOM（与 check_chapter/fix_said_tags 口径一致）
+    lines = [l.rstrip() for l in open(args.file, encoding="utf-8-sig", errors="replace").read().splitlines() if l.strip()]
     failures, warnings = [], []
     if not lines:
-        print("[✗] 空文件")
-        sys.exit(1)
+        # v7.47：空文件按输入错误 exit 2——此前 exit 1 与"内容硬伤"混同
+        print("[✗] 输入错误：空文件")
+        sys.exit(2)
 
     title = lines[0]
     if not (re.search("\u7b2c\\s*\\d+\u7ae0|\u7b2c\\s*\\d+\u96c6", title) and "\u5267\u672c" in title):
@@ -86,6 +97,9 @@ def main():
         if SCENE_HEAD.match(s):
             no_dlg_run = 0
             last_scene_has_dlg = False
+            # v7.47：补 tail_is_action 重置——此前文件以场景头收尾时该标志还是
+            # 上一个 △ 行的值，误报"文件以动作/描述行收尾"（告警文字与事实不符）
+            tail_is_action = False
             continue
         if s.startswith("\u25b3"):
             ln = countable_len(s)
@@ -104,6 +118,15 @@ def main():
             max_run = max(max_run, no_dlg_run)
             tail_is_action = False
             continue
+        # v7.47：裸「旁白：」前置分支——此前 NARR 只在 startswith("【") 分支内
+        # 匹配，裸形式落入 DIALOG 按对白计（旁白上限检查对该形式完全失效，
+        # 对白占比虚高；实测 81.6%）
+        if NARR.match(s):
+            narr_cnt += 1
+            no_dlg_run += 1
+            max_run = max(max_run, no_dlg_run)
+            tail_is_action = False
+            continue
         m = DIALOG.match(s)
         if m:
             content = m.group(2)
@@ -112,8 +135,6 @@ def main():
             no_dlg_run = 0
             last_scene_has_dlg = True
             tail_is_action = False
-            if scene_idxs and i > scene_idxs[-1]:
-                pass
             for sent in re.split("[\uff01\uff1f\u3002\uff1b\u2026]+", content):
                 if HANZI.search(sent):
                     sent_all += 1

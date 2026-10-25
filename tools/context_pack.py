@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """为续写、审校和接手旧书生成可追溯上下文包（v7.34）。
 
-只读取项目内 canonical 档案与指定章节，不调用外部模型，不把上下文写入技能目录。
+默认只读取项目内 canonical 档案与指定章节，不调用外部模型，不把上下文写入技能目录。
+若项目明确开启同类小说研究并允许联网，会先刷新 24 小时缓存的结构卡，再把
+研究报告作为低权重上下文载荷；未开启或网络失败不阻塞上下文包。
 每个文件附 SHA-256、字符数和截断标记，方便跨会话复核来源。
 """
 import argparse
@@ -29,6 +31,7 @@ CANONICAL_FILES = (
     "mind/章节目录.md",
     "mind/角色状态快照.md",
     "mind/伏笔追踪表.md",
+    "mind/事实台账.md",
     "mind/时间线.md",
     "mind/剧情走向锁定.md",
     "mind/作者记忆.md",
@@ -40,6 +43,7 @@ CANONICAL_FILES = (
     "设定/角色.md",
     "设定/金手指.md",
     "设定/文风样本.md",
+    "研究/同类小说研究.md",
 )
 
 
@@ -101,8 +105,23 @@ ROLE_WEIGHTS = {
     "current-review": 1.0,
     "recent-chapter": 1.0,
     "recent-review": 0.5,
+    "similar-research": 0.5,
 }
 CURRENT_ROLE = "current-chapter"
+
+
+def maybe_refresh_similar(root: Path) -> dict:
+    """按项目显式配置刷新同类研究；配置关闭时绝不联网。"""
+    try:
+        import similar_novels
+        config = similar_novels.load_config(root)
+        if not config.get("enabled"):
+            return {"status": "disabled"}
+        if not config.get("allow_network"):
+            return {"status": "network_not_authorized"}
+        return similar_novels.research(root, allow_network=True)
+    except Exception as exc:  # 研究是可选增强，不能阻塞续写上下文
+        return {"status": "error", "message": str(exc)}
 
 
 def plan_entries(root: Path, chapter, recent: int) -> list:
@@ -110,7 +129,8 @@ def plan_entries(root: Path, chapter, recent: int) -> list:
     plan = []
     for rel in CANONICAL_FILES:
         if (root / rel).is_file():
-            plan.append((rel, "canonical"))
+            role = "similar-research" if rel == "研究/同类小说研究.md" else "canonical"
+            plan.append((rel, role))
     if chapter is None:
         return plan
     review = f"mind/回顾/第{chapter:03d}章回顾.md"
@@ -151,6 +171,7 @@ def allocate_limits(plan: list, max_total: int, max_chars: int,
 
 def build_pack(root: Path, chapter=None, recent=DEFAULT_CONTEXT_RECENT_CHAPTERS,
                max_chars=DEFAULT_CONTEXT_MAX_CHARS, max_total=DEFAULT_CONTEXT_MAX_TOTAL):
+    similar_research = maybe_refresh_similar(root)
     plan = plan_entries(root, chapter, recent)
     limits = allocate_limits(plan, max_total, max_chars) if max_total else {}
 
@@ -192,6 +213,7 @@ def build_pack(root: Path, chapter=None, recent=DEFAULT_CONTEXT_RECENT_CHAPTERS,
         "max_chars": max_chars,
         "budget": budget,
         "files": selected,
+        "similar_research": similar_research,
     }
 
 
@@ -203,6 +225,7 @@ def render_markdown(pack):
         f"- 目标章节：{pack['chapter'] or '未指定'}",
         f"- 生成时间：{pack['generated_at']}",
         f"- 文件数：{len(pack['files'])}",
+        f"- 同类小说研究：{pack.get('similar_research', {}).get('status', '未执行')}",
     ]
     budget = pack.get("budget")
     if budget:

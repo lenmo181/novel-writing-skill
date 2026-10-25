@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""检查并安全更新网络小说创作技能（v7.46）。
+"""检查并安全更新网络小说创作技能（v7.50）。
 
 默认只检查 SkillHub 版本；只有明确使用 --update/--auto 且确认后才替换本地技能。
 更新只影响 Codex 技能目录，不触碰用户的小说项目目录。
@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -24,12 +25,18 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional, Tuple
 
 try:
-    from config import SKILLHUB_DOWNLOAD_URL, SKILLHUB_SLUG
+    from config import SKILLHUB_DOWNLOAD_URL, SKILLHUB_SLUG, SKILL_VERSION as _SKILL_VERSION
 except ImportError:  # 允许直接复制脚本后仍能给出可用默认值
     SKILLHUB_DOWNLOAD_URL = (
         "https://api.skillhub.cn/api/v1/download?slug=@user_cd8383ec/web-novel-writing"
     )
     SKILLHUB_SLUG = "@user_cd8383ec/web-novel-writing"
+    # 仅在脚本被单独复制、无法导入 config.py 时使用；与当前发布版本保持同步。
+    _SKILL_VERSION = "7.49"
+
+# v7.47：UA 从 config 读版本——此前两处硬编码 "…updater/7.29"，已漂移 17 个
+# 版本且不在 bump 登记点位，永远同步不到
+USER_AGENT = "network-novel-writing-skill-updater/%s" % _SKILL_VERSION
 
 
 SKILL_NAME = "网络小说创作技能"
@@ -122,10 +129,12 @@ def _release_from_headers(headers, source_url: str, location: str = "") -> Relea
 def fetch_latest(download_url: str, timeout: int = 20) -> Release:
     request = urllib.request.Request(
         download_url,
-        headers={"User-Agent": "network-novel-writing-skill-updater/7.29"},
+        headers={"User-Agent": USER_AGENT},
     )
     opener = urllib.request.build_opener(NoRedirect())
     try:
+        # v7.47：从 config 读版本——此前硬编码 "…updater/7.29"，已漂移 17 个
+        # 版本且不在 bump 登记点位，永远同步不到
         response = opener.open(request, timeout=timeout)
     except urllib.error.HTTPError as exc:
         if exc.code not in REDIRECT_CODES:
@@ -136,7 +145,10 @@ def fetch_latest(download_url: str, timeout: int = 20) -> Release:
 
 
 def _safe_relative(name: str, prefix: Optional[str] = None) -> Optional[Path]:
-    raw = PurePosixPath(name)
+    # v7.47：先规范化反斜杠——此前 PurePosixPath 把 Windows 风格
+    # "..\..\evil.py"/"D:\evil.py" 视为单个部件，名义检查全部失效，
+    # 唯一防线是 extract_zip 的 resolve 围栏（单点，无防御纵深）
+    raw = PurePosixPath(name.replace("\\", "/"))
     if raw.is_absolute() or ".." in raw.parts:
         raise ValueError("ZIP 含不安全路径：%s" % name)
     parts = raw.parts
@@ -195,7 +207,7 @@ def extract_zip(zip_path: Path, destination: Path) -> Path:
 def download_release(release: Release, destination: Path, timeout: int = 60) -> Path:
     request = urllib.request.Request(
         release.download_url,
-        headers={"User-Agent": "network-novel-writing-skill-updater/7.29"},
+        headers={"User-Agent": USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=timeout) as response, destination.open("wb") as sink:
         shutil.copyfileobj(response, sink, length=1024 * 256)
@@ -232,25 +244,52 @@ def backup_current(source: Path, backup_root: Path) -> Optional[Path]:
         current = "unknown"
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     target = backup_root / ("%s-v%s-%s" % (SKILL_NAME, current, stamp))
+    # v7.47：秒级 stamp 在同一秒内两次 --force（CI 重试）→ copytree 抛
+    # FileExistsError 更新失败且无法重试；追加 -2/-3 后缀
+    n = 2
+    while target.exists():
+        target = backup_root / ("%s-v%s-%s-%d" % (SKILL_NAME, current, stamp, n))
+        n += 1
     shutil.copytree(source, target)
     return target
 
 
 def replace_skill(candidate: Path, destination: Path, backup_root: Path) -> Optional[Path]:
+    """v7.47：同分区 rename 交换（近原子）——此前 _clear_tree 全删 + _copy_tree
+    逐文件复制，进程在此期间被 kill/断电/蓝屏时 destination 处于半清空状态：
+    备份完好但没有任何自动恢复机制，且下次运行只报"未找到本地版本"退出。
+    备份回滚只覆盖"异常路径"，不覆盖"进程死亡路径"，这是原设计最大缺口。
+    """
     backup = backup_current(destination, backup_root)
+    staging = destination.with_name(destination.name + ".staging-%s" % datetime.now().strftime("%Y%m%d-%H%M%S"))
+    retired = destination.with_name(destination.name + ".old-%s" % datetime.now().strftime("%Y%m%d-%H%M%S"))
     try:
-        destination.mkdir(parents=True, exist_ok=True)
-        _clear_tree(destination)
-        _copy_tree(candidate, destination)
-        read_local_version(destination)
+        if staging.exists():
+            _clear_tree(staging)
+        _copy_tree(candidate, staging)
+        read_local_version(staging)
+        # 近原子交换：旧目录改名退场 → 新目录改名上场；任一步失败即反向换回
+        if destination.exists():
+            os.replace(destination, retired)
+        try:
+            os.replace(staging, destination)
+        except Exception:
+            if retired.exists():
+                os.replace(retired, destination)  # 反向换回
+            raise
+        if retired.exists():
+            shutil.rmtree(retired, ignore_errors=True)
         return backup
     except Exception as orig_err:
-        # 回滚自身也可能失败（Windows 文件锁），不能让回滚异常掩盖原始错误、
-        # 也不能在无备份（全新安装）时静默留下半空目录（v7.30）
+        # 清理半成品 staging； retired/destination 状态由上面保证至少其一完好
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
         rollback_err = None
         try:
-            _clear_tree(destination)
-            if backup:
+            if retired.exists() and not destination.exists():
+                os.replace(retired, destination)
+            if not destination.exists() and backup:
+                _clear_tree(destination)
                 _copy_tree(backup, destination)
         except Exception as rb:
             rollback_err = rb
@@ -286,7 +325,16 @@ def check_or_update(args: argparse.Namespace) -> int:
         return 2 if available and not should_apply else 0
 
     if not args.auto and not args.yes:
-        answer = input("检测到 v%s，是否更新并备份当前版本？[y/N] " % latest.version_text).strip().lower()
+        # v7.47：非交互环境（stdin 关闭/重定向/CI/管道）input() 抛 EOFError，
+        # 此前不在 main 的 except 元组里 → 裸 traceback。无人值守请用 --yes/--auto
+        if not sys.stdin.isatty():
+            print("[update] 非交互环境（stdin 不可读）：请使用 --yes 或 --auto 参数")
+            return 2
+        try:
+            answer = input("检测到 v%s，是否更新并备份当前版本？[y/N] " % latest.version_text).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("[update] 无交互输入，按取消处理")
+            return 0
         if answer not in {"y", "yes"}:
             print("[update] 用户取消，未修改本地技能")
             return 0
@@ -343,7 +391,11 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return check_or_update(args)
-    except (OSError, ValueError, urllib.error.URLError, zipfile.BadZipFile) as exc:
+    # v7.47：补 http.client.HTTPException——下载中断抛的 IncompleteRead 是
+    # HTTPException 子类而非 OSError/URLError，此前逃出捕获元组裸 traceback
+    # （大 zip 下载到 90% 断流是常见场景）
+    except (OSError, ValueError, urllib.error.URLError, zipfile.BadZipFile,
+            http.client.HTTPException, EOFError, KeyboardInterrupt) as exc:
         if args.json:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False))
         else:

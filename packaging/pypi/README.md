@@ -53,11 +53,11 @@ python packaging/pypi/build_wheel.py
 预期输出：
 
 ```
-构建 web-novel-writing-mcp v7.46.0
+构建 web-novel-writing-mcp v<ver>.0
   ✓ 打包技能文件 105 个
-  ✓ wheel：dist\web_novel_writing_mcp-7.46.0-py3-none-any.whl  (615 KiB)
+  ✓ wheel：dist\web_novel_writing_mcp-<ver>.0-py3-none-any.whl  (615 KiB)
 自检（安装到临时目录 + MCP 握手 + 跑 doctor）…
-  ✓ 握手 OK：web-novel-writing v7.46.0
+  ✓ 握手 OK：web-novel-writing v<ver>.0
   ✓ doctor 输出：全绿
 结论：通过 ✅
 ```
@@ -86,7 +86,7 @@ password = pypi-AgEIcHlwaS5vcmc...
 ### 2. 上传
 
 ```bash
-python -m twine upload dist/web_novel_writing_mcp-7.46.0-py3-none-any.whl
+python -m twine upload dist/web_novel_writing_mcp-<ver>.0-py3-none-any.whl
 ```
 
 无 `twine` 时先装：`pip install twine`（**仅发布机需要**，运行时不依赖任何第三方包）。

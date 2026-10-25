@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿流水线（v7.46）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
+"""全文审稿流水线（v7.50）：全书诊断 → P0-P3 分级 → 修复队列 → 二审对比。
 
 职责单一（治理铁律）：**只诊断正文，不修改正文/档案/大纲**；会写入 mind/ 诊断报告与问题队列。
 产物两件：mind/全文审稿报告.md（人读）+ mind/全文审稿队列.json（修复执行层消费，十字段）。
@@ -20,28 +20,32 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402  阈值延迟绑定（测试可运行时修改 config 验证传播）
-from canonical_parser import parse_role_snapshot
+from canonical_parser import parse_role_snapshot, CHAPTER_FILE_RE
 
 DEAD_MARK_RE = re.compile(r"已?(_|\s|）)?(死亡|阵亡|身死|毙命|牺牲|陨落|已死|已亡|去世|离世)")
 CH_NUM_RE = re.compile(r"第(\d{1,5})[章回节]")
 RHYTHM_TYPE_RE = re.compile(r"(主线|峰值|缓冲-对话|缓冲-线索|缓冲-代价|校准)")
 
 # 修复执行层映射（诊断器 → 专项修复器；full_review 自身永不执行修复）
+# v7.47：("跨章","P2") 两个重复键（ngram 换皮重复 vs 伏笔沉睡）此前后者静默覆盖
+# 前者——ngram 问题拿到伏笔沉睡的修复建议（张冠李戴），第一条永不可达。
+# 现加 tag 维度消除键冲突；无 tag 调用点走 (cat, level) → (cat, P2) → 默认兜底。
 REPAIR_MAP = {
-    ("全书", "P0"): ("补写缺章或 gen_index.py 重排目录", "仅缺失章号的正文位", "不得重排已有正文章号"),
+    ("全书", "P0"): ("补写缺章或 gen_index.py 重排目录", "仅缺失章号的正文位", "不得重排已有正文章节号"),
     ("设定", "P0"): ("continuity_check.py 定位 → 就地改写或档案修正", "该角色出场段 + mind/角色状态快照.md 对应行", "禁止静默删除出场（回忆/幻觉/替身须在快照标注）"),
     ("设定", "P1"): ("同上（P0 设定流程）", "同上", "同上"),
     ("跨章", "P1"): ("章纲层调整：缓冲章三型轮换 / 变量注入", "章纲 + 对应缓冲章", "不整章重写主线章"),
     ("单章", "P1"): ("润色扩写配方（太短）/ 删冗（超长）；功能章豁免并在目录注明", "该章正文", "不注水、不为达标强删剧情锚点"),
-    ("跨章", "P2"): ("变量注入：换冲突对象/目标/信息/代价之一", "冲突变量层（非语言层）", "禁止只做语言润色（换皮重复润色无效）"),
+    ("跨章", "P2", "ngram"): ("变量注入：换冲突对象/目标/信息/代价之一", "冲突变量层（非语言层）", "禁止只做语言润色（换皮重复润色无效）"),
+    ("跨章", "P2", "foreshadow"): ("缓冲-线索章推进，或显式降级/废弃并在追踪表登记", "推进章 + mind/伏笔追踪表.md", "不当章硬回收（信息解密≤30% 红线）"),
     ("单章", "P2"): ("去AI味 8 Gate 定向改写 / 对话归位六式收敛；体裁例外走书格钉参数", "病灶段", "不强加无意义对话/修辞凑指标"),
-    ("跨章", "P2"): ("缓冲-线索章推进，或显式降级/废弃并在追踪表登记", "推进章 + mind/伏笔追踪表.md", "不当章硬回收（信息解密≤30% 红线）"),
     ("全书", "P3"): ("卷末档案整理", "mind/", "不动正文"),
     ("单章", "P3"): ("按提示转码/补字段", "该文件", "不重写内容"),
 }
@@ -61,26 +65,37 @@ def find_chapters(root, use_index=True):
 
     v7.45：章号/标题/字数这类元数据优先走 `chapter_index` 的增量缓存——
     千章规模下每次全文审稿不再为元数据重读全部正文。索引不可用时自动回退全量扫描。
+    v7.47：索引/回退两模式口径统一——① 重复章号保留全部文件（不再字典去重覆盖）；
+    ② 合并 .md+.txt 扫描；③ unrecognized 两路都上报（此前索引路径提前 return，
+    P3「无法识别章号」在索引存在时静默消失）；④ 章号识别与索引同用 CHAPTER_FILE_RE。
     """
     book_dir = root / "书稿"
     base = book_dir if book_dir.is_dir() else root
     chapters, unrecognized = [], []
-    indexed = {}
+    # v7.47：unrecognized 统一前置扫描——索引有无都上报，两模式结论一致
+    for p in sorted(base.glob("*.md")) + sorted(base.glob("*.txt")):
+        if p.name not in ("正文.md",) and not CHAPTER_FILE_RE.match(p.name):
+            unrecognized.append(p.name)
     if use_index and book_dir.is_dir():
         try:
             import chapter_index
             records, _stat = chapter_index.scan(root)
-            indexed = {r["chapter"]: Path(root) / r["path"] for r in records}
+            # v7.47：保留全部文件再排序——此前字典推导按章号去重，重复章号
+            # （复制章节忘改号，千章项目常态）后者静默覆盖前者，"章节号重复"P0
+            # 检测静默失效且被覆盖文件整体漏审；违反 chapter_index.py:17
+            # "索引可丢、结果完全一致"的设计纪律
+            indexed = {}
+            for r in records:
+                indexed.setdefault(r["chapter"], []).append(Path(root) / r["path"])
+            if indexed:
+                return sorted(((n, p) for n, ps in indexed.items() for p in ps),
+                              key=lambda x: x[0]), unrecognized
         except Exception:
             indexed = {}  # 索引是缓存不是事实，任何异常都回退全量扫描
-    if indexed:
-        return sorted(indexed.items(), key=lambda x: x[0]), unrecognized
-    for p in sorted(base.glob("*.md")):
-        m = CH_NUM_RE.search(p.stem)
+    for p in sorted(base.glob("*.md")) + sorted(base.glob("*.txt")):
+        m = CHAPTER_FILE_RE.match(p.name)
         if m:
             chapters.append((int(m.group(1)), p))
-        elif p.name not in ("正文.md",):
-            unrecognized.append(p.name)
     chapters.sort(key=lambda x: x[0])
     return chapters, unrecognized
 
@@ -110,8 +125,11 @@ class Review:
         self.root = root
         self.issues = []
 
-    def add(self, level, cat, loc, msg, evidence=""):
-        rec, scope, forbid = REPAIR_MAP.get((cat, level), REPAIR_MAP.get((cat, "P2"), ("人工裁定", "最小范围", "禁止整章重写")))
+    def add(self, level, cat, loc, msg, evidence="", tag=None):
+        rec, scope, forbid = REPAIR_MAP.get(
+            (cat, level, tag),
+            REPAIR_MAP.get((cat, level), REPAIR_MAP.get((cat, "P2"), ("人工裁定", "最小范围", "禁止整章重写"))),
+        )
         self.issues.append({
             "level": level, "cat": cat, "loc": loc,
             "msg": msg, "evidence": evidence or msg,
@@ -184,12 +202,12 @@ class Review:
                     if limit and last_push and cur_max - last_push > limit:
                         self.add("P2", "跨章", row[:30],
                                  f"T{tier} 伏笔疑似沉睡：最后推进第{last_push}章，当前第{cur_max}章（阈值{limit}）",
-                                 f"追踪表行：{row[:60]}")
+                                 f"追踪表行：{row[:60]}", tag="foreshadow")
 
     # ── 阶段1c：章节级统计 ──
     def scan_chapters(self, chapters):
         stats = []
-        prev = None
+        prev, prev_n = None, None
         for n, p in chapters:
             body = chapter_body(p)
             if body is None:
@@ -203,10 +221,12 @@ class Review:
                 overlap = len(ngram_set(prev) & ngram_set(body))
                 base = min(len(ngram_set(prev)), len(ngram_set(body))) or 1
                 if overlap * 100 / base > config.FULL_REVIEW_NGRAM_OVERLAP_WARN:
-                    self.add("P2", "跨章", f"第{n - 1}-{n}章",
+                    # v7.47：loc 用真实上一章章号——此前 n-1 假设连续，章号不连续时
+                    # （只有第1章和第10章）输出"第9-10章"把修复者指向不存在的第9章
+                    self.add("P2", "跨章", f"第{prev_n}-{n}章",
                              f"相邻章 3-gram 重复率 {overlap * 100 // base}%（>{config.FULL_REVIEW_NGRAM_OVERLAP_WARN}%）疑似换皮重复",
-                             f"重叠 3-gram {overlap}/{base}")
-            prev = body
+                             f"重叠 3-gram {overlap}/{base}", tag="ngram")
+            prev, prev_n = body, n
         if not stats:
             return stats
         lens = sorted(s["chars"] for s in stats)
@@ -229,7 +249,7 @@ class Review:
         return stats
 
     # ── 阶段1d：节奏连续（读章节目录节奏类型列）──
-    def scan_rhythm(self, root, stats):
+    def scan_rhythm(self, root):
         idx = root / "mind" / "章节目录.md"
         if not idx.is_file():
             return
@@ -298,7 +318,10 @@ CONFIRMED_FIXED_STATUSES = {"fixed", "auto_fixed"}
 
 
 def issue_key(it):
-    return (it["cat"], it["loc"], it["msg"])
+    # v7.47：msg 数字归一化——msg 内嵌实时测量值（"重复率 87%"/"断档 3 处"），
+    # 正文任何微小改动都会改变 key，同一逻辑问题被判"旧消失+新新增"，
+    # fixed 状态继承与回归检测静默失效（修复一半后重跑二审正是核心场景）
+    return (it["cat"], it["loc"], re.sub(r"\d+", "#", it["msg"]))
 
 
 def build_queue(issues, round_no, prev_items=None):
@@ -356,37 +379,68 @@ def run_review(root, strict=False, as_json=False, no_write=False):
     cur_max = chapters[-1][0] if chapters else 0
     rv.scan_archive(chapters, cur_max)
     stats = rv.scan_chapters(chapters)
-    rv.scan_rhythm(root, stats)
+    rv.scan_rhythm(root)
     issues = sorted(rv.issues, key=lambda i: (P_ORDER.get(i["level"], 9), CAT_ORDER.get(i["cat"], 9)))
 
     # 上一轮队列（存在则进入二审；resolved_log 为跨轮回归记忆）
     qpath = root / QUEUE_PATH
     prev_items, round_no, resolved_log = [], 1, []
+    prev_meta = None
     if qpath.is_file():
         try:
             prev = json.loads(qpath.read_text(encoding="utf-8"))
-            prev_items = prev.get("issues") or []
-            round_no = int(prev.get("round", 1)) + 1
+            # v7.47：畸形队列结构校验——此前 except 只捕 ValueError/OSError，
+            # "round": null → int(None) TypeError、issues 含非 dict → KeyError
+            # 均未捕获裸崩（退出码非 0 非 1 非 2，调用方只见崩溃尾部）；
+            # `or 1` 兜底 null/缺失（注意 get("round",1) 在键存在值为 null 时
+            # 返回 None 而非默认值）
+            if not isinstance(prev, dict):
+                raise ValueError("队列不是 JSON 对象")
+            prev_issues = prev.get("issues")
+            if prev_issues is not None and not isinstance(prev_issues, list):
+                raise ValueError("队列 issues 不是数组")
+            if any(not isinstance(p, dict) for p in (prev_issues or [])):
+                raise ValueError("队列 issues 含非对象元素")
+            prev_items = prev_issues or []
+            round_no = int(prev.get("round") or 1) + 1
             resolved_log = prev.get("resolved_log") or []
-        except (ValueError, OSError):
+            # v7.47：透传 meta——repair_runner 写的迁移痕迹/最后状态变更时间
+            # 此前被本工具重建队列时静默丢弃，审计价值归零
+            prev_meta = prev.get("meta")
+            if not isinstance(resolved_log, list):
+                resolved_log = []
+        except (ValueError, OSError, TypeError, AttributeError, KeyError):
             prev_items = []
     queue = build_queue(issues, round_no, prev_items)
     d = diff_rounds(prev_items, queue, resolved_log) if (prev_items or resolved_log) else None
     if d is not None:
         confirmed_resolved = [r for r in d["resolved"] if r.get("prev_status") in CONFIRMED_FIXED_STATUSES]
-        resolved_log = resolved_log + confirmed_resolved[-200:]  # 仅保存明确修复项
+        # v7.47：总量封顶——此前只截断每轮新增，长生命周期项目队列文件持续膨胀
+        resolved_log = (resolved_log + confirmed_resolved)[-500:]
 
     counts = {lv: sum(1 for q in queue if q["level"] == lv) for lv in ("P0", "P1", "P2", "P3")}
     queue_doc = {
         "version": config.SKILL_VERSION, "round": round_no, "n_chapters": len(chapters),
         "to_chapter": cur_max, "counts": counts, "issues": queue, "resolved_log": resolved_log,
     }
+    # v7.47：meta 透传（repair_runner 写入，审计字段不在本工具职责内重建）
+    if prev_meta is not None:
+        queue_doc["meta"] = prev_meta
     write_failed = False
     q_saved = None
     if not no_write:
         try:
             qpath.parent.mkdir(parents=True, exist_ok=True)
-            qpath.write_text(json.dumps(queue_doc, ensure_ascii=False, indent=1), encoding="utf-8")
+            # v7.47：原子写 + .bak——此前直接覆写，写一半崩溃/并发（手动运行与
+            # repair_orchestrator 触发的运行）会留下截断 JSON，下次运行 parse
+            # 失败 → round 重置、全部 status 与 resolved_log 静默丢失。
+            # 与 repair_runner.save_queue 同款策略
+            if qpath.exists():
+                qpath.with_suffix(qpath.suffix + ".bak").write_text(
+                    qpath.read_text(encoding="utf-8"), encoding="utf-8")
+            tmp = qpath.with_suffix(qpath.suffix + ".tmp")
+            tmp.write_text(json.dumps(queue_doc, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, qpath)
             q_saved = str(qpath)
         except OSError as e:
             q_saved = f"队列落盘失败：{e}"

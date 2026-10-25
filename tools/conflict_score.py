@@ -76,7 +76,12 @@ def normalize_factors(factors):
     items = []
     if isinstance(factors, dict):
         for k, v in factors.items():
-            items.append((k, int(v)))
+            # v7.47：因子次数必须是非负整数，拒绝布尔/浮点/负数，避免 int() 静默截断或负冲突值
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                raise ValueError(
+                    f"因子 {k} 的次数必须是非负整数，收到 {type(v).__name__}：{v!r}；合法因子: "
+                    + "、".join(kk for kk, _, _ in WEIGHTS))
+            items.append((k, v))
         return items
     counts = {}
     for k in factors:
@@ -198,7 +203,8 @@ def run_json(path, base):
     warn = check_peak_spacing(numbered)
     print("-" * 60)
     if peak_note:
-        print("峰值章: " + "、".join(f"第{n}章" for n in peak_note if n) +
+        # v7.47：显式判 None 而非 if n，避免第 0 章被当作假值吞出峰值章清单
+        print("峰值章: " + "、".join(f"第{n}章" for n in peak_note if n is not None) +
               "——前后各 2 章内不得排「缓冲-对话」")
     if warn:
         print("[!] 峰值间距过近（<4 章）: " +
@@ -216,6 +222,11 @@ def main():
     ap.add_argument("--json", metavar="FILE", help="批量计算：读取章章节目的 JSON")
     ap.add_argument("--base", type=int, default=BASE_DEFAULT, help="基础分（默认 1）")
     args = ap.parse_args()
+
+    if args.base < 0:
+        # v7.47：基础分必须 >=0，此前 --base -10 无校验会产出负冲突值
+        print(f"[✗] --base 必须 >= 0，收到 {args.base}")
+        sys.exit(1)
 
     if args.demo:
         sys.exit(demo())

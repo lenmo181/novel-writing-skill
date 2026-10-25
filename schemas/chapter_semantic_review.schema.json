@@ -16,7 +16,22 @@
           "required": ["status", "evidence"],
           "properties": {
             "status": {"enum": ["pass", "warn", "revise", "blocked", "weak"]},
-            "evidence": {"type": "string", "minLength": 1},
+            "evidence": {
+              "description": "语义证据。两种形态：(1) 字符串——描述性证据，旧格式；(2) 对象——含可验证引文锚点：text=描述，quote=正文原文摘录，offset=quote 在正文中的字符偏移。形态 (2) 由 chapter_readiness.py 服务端逐字比对，quote 与正文不符即 Gate 失败。",
+              "oneOf": [
+                {"type": "string", "minLength": 1},
+                {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": {
+                    "text": {"type": "string", "minLength": 1},
+                    "quote": {"type": "string", "minLength": 1},
+                    "offset": {"type": "integer", "minimum": 0}
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            },
             "location": {"type": "string"},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             "note": {"type": "string"}

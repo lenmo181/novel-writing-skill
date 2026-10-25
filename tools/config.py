@@ -8,9 +8,9 @@ from pathlib import Path
 import os
 
 
-SKILL_VERSION = "7.46"
+SKILL_VERSION = "7.50"
 # 版本发布/SkillHub 上线日期；不要使用研发开始日期替代。
-RELEASE_DATE = "2026-10-16"
+RELEASE_DATE = "2026-10-25"
 
 SKILLHUB_SLUG = "@user_cd8383ec/web-novel-writing"
 SKILLHUB_DOWNLOAD_URL = (
@@ -75,6 +75,57 @@ FULL_REVIEW_FORESHADOW_T2 = 40          # Tier-2 伏笔沉睡阈值（章）
 FULL_REVIEW_FORESHADOW_T3 = 20          # Tier-3 伏笔沉睡阈值（章）
 FULL_REVIEW_RHYTHM_SAME_STREAK = 3      # 同节奏类型连续 ≥3 章告警
 FULL_REVIEW_RHYTHM_BUFFER_STREAK = 4    # 缓冲型合计连续 ≥4 章告警
+
+# 期待线悬空阈值（v7.49 补齐）
+# 背景：v7.40 引入期待线台账 + 悬空告警时，此常量只写了引用点（continuity_check.py）
+# 未在 config.py 定义——只要项目的 mind/期待线.md 存在「活跃」状态条目，
+# continuity_check.py 即 NameError 崩溃，整条连续性检查链（含 chapter_readiness
+# 工程 Gate）全部中断。v7.49 起提到 config.py 作为真源，并纳入 lint 漂移守护。
+EXPECTATION_STALE_CHAPTERS = 8          # 活跃期待线最近推进章距当前最新章超过此值 = 悬空
+
+# 事实台账（v7.49）：对标 chinese-novelist-skill「设定与事实词典」与
+# AI_NovelGenerator entity_state_history。先登记后写、到期必兑、数字事实优先登记。
+FACT_LEDGER_DUE_OFFSET = 3              # 事实到期章 = 登记章 + 此偏移；≤0 表示不设到期
+FACT_LEDGER_DIGIT_MIN_LEN = 2           # 数字事实判定：抽取连续数字/中文数字串的最小长度
+FACT_LEDGER_MAX_PER_CHAPTER = 12        # 单章未登记数字事实超过此数 = 告警（先登记后写）
+FACT_LEDGER_UNKNOWN_REASONS = (         # unknown 位置的合法原因枚举
+    "nonexistent",      # 不存在（该事实本就不成立）
+    "unclaimed",        # 未认领（尚未指定归属）
+    "before_start",     # 早于开书
+    "voided",           # 已作废
+    "needs_review",     # 待复核
+    "unresolved_reference",  # 引用未解析
+)
+FACT_LEDGER_POSITIONS = (              # 事实位置语义枚举
+    "book_start",       # 开书即成立
+    "volume_start",     # 某卷开始成立
+    "chapter_before",   # 某章之前成立
+    "chapter_after",    # 某章之后成立
+    "unknown",          # 位置未知（须在 unknown_reason 列说明原因）
+)
+FACT_LEDGER_STATUSES = (               # 事实状态枚举
+    "已登记",           # 已登记未兑现
+    "已兑现",           # 已在正文落地
+    "待回收",           # 承诺后续章节兑现
+    "已作废",           # 明确废弃
+    "不适用",           # 非正文事实（如设定参数）
+)
+
+# 伏笔到期提醒（v7.49）：对标 MuMuAINovel 三层提醒（必须回收 / 已超期 / 近期待回收）
+FORESHADOW_DUE_OFFSET = 3              # 预计回收章 ≤ 当前最新章 + 此值 = 近期待回收
+FORESHADOW_OVERDUE_OFFSET = 5          # 预计回收章 ≤ 当前最新章 - 此值 = 已超期
+FORESHADOW_STATUSES = (                # 伏笔状态白名单（在原白名单上扩展「部分回收」）
+    "未回收", "已回收", "已废弃", "待定", "部分回收", "-",
+)
+
+# 量化 AI 味硬指标（v7.49）：对标 chinese-novelist-skill 的量化硬指标口径
+# （不是A是B ≤2处/章、单一意象 ≤1次/千字、标志小动作 ≤8次/全书、格言式收尾 ≤3次/全书）。
+# 本技能只接「单章可机械判定」的两项；跨章口径（全书级）由 full_review 承担或不做，
+# 避免误伤与口径重叠。全部为警告级——量化指标是定向改写的线索，不是硬卡。
+AI_TASTE_CONTRAST_MAX = 2             # 「不是A是B」句式上限（处/章），来源：chinese-novelist-skill
+AI_TASTE_IMAGERY_MAX_PER_K = 1        # 单一意象上限（次/千字），来源：chinese-novelist-skill
+AI_TASTE_IMAGERY_MIN_LEN = 2          # 意象词最小长度（单字不算意象）
+# 标志小动作/格言式收尾为全书级口径，本技能暂不做单章判定（见 references/常量表.md 十四）。
 
 PROJECT_ROOT_ENV = "NOVEL_PROJECT_ROOT"
 

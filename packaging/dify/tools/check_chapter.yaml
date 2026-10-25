@@ -55,10 +55,22 @@ parameters:
         label:
           en_US: Qidian
           zh_Hans: 起点
-      - value: zhihu
+      - value: jinjiang
         label:
-          en_US: Zhihu Yanxuan
-          zh_Hans: 知乎盐选
+          en_US: Jinjiang
+          zh_Hans: 晋江
+      - value: qimao
+        label:
+          en_US: Qimao
+          zh_Hans: 七猫
+      - value: zongheng
+        label:
+          en_US: Zongheng
+          zh_Hans: 纵横
+      - value: feilu
+        label:
+          en_US: Feilu
+          zh_Hans: 飞卢
     form: llm
   - name: quote
     type: select

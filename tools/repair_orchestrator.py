@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文修复编排器（v7.46）。
+"""全文修复编排器（v7.50）。
 
 默认路径：读取诊断队列 → 生成任务包；任何正文写入都必须显式 --apply。
 机械修复只允许处理任务包中明确命中的章节，不再对整个书稿横扫。
@@ -20,6 +20,7 @@ from config import SKILL_VERSION
 import snapshot_project
 import audit_log
 import fix_said_tags
+import repair_runner
 from canonical_parser import chapter_files
 
 QUEUE = Path("mind") / "全文审稿队列.json"
@@ -40,10 +41,17 @@ def classify(issue):
     msg = issue.get("msg", "")
     return "mechanical_candidate" if any(token in msg for token in MECHANICAL_HINTS) else "ai_assisted"
 
-def discover_mechanical_candidates(root, round_no):
-    """使用机械修复器 dry-run 探测可安全处理的章节；只写入任务包，不修改正文。"""
+def discover_mechanical_candidates(root, round_no, wont_fix_chapters=frozenset()):
+    """使用机械修复器 dry-run 探测可安全处理的章节；只写入任务包，不修改正文。
+
+    v7.47：wont_fix_chapters——用户明确标记"不修了"的章号集合，机械候选
+    发现阶段即跳过。此前 wont_fix 保护靠 prepare 的 loc 混同去重"意外"达成
+    （R1 修复移除混同去重后必须显式实现，否则 wont_fix 章会被机械修复触碰）。
+    """
     candidates = []
     for number, path in chapter_files(root):
+        if number in wont_fix_chapters:
+            continue
         try:
             result = fix_said_tags.process(str(path), True, None, True, True)
         except (OSError, UnicodeDecodeError):
@@ -59,8 +67,11 @@ def discover_mechanical_candidates(root, round_no):
             details.append(f"元信息={meta}")
         if walls:
             details.append(f"文字墙={walls}")
+        # v7.47：issue_id 加文件级短哈希后缀——重复章号（第12章旧稿/修订）时
+        # 原编号两条候选同 ID，repair_runner.find_issue 只返回第一条
+        stamp = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:4]
         candidates.append({
-            "issue_id": f"MECH-{round_no:02d}-{number:03d}",
+            "issue_id": f"MECH-{round_no:02d}-{number:03d}-{stamp}",
             "level": "P2",
             "cat": "单章",
             "loc": f"第{number}章",
@@ -79,9 +90,22 @@ def prepare(root):
     queue = load_queue(root)
     issues = queue.get("issues") or []
     round_no = int(queue.get("round") or 1)
-    mechanical = discover_mechanical_candidates(root, round_no)
-    existing_locs = {str(item.get("loc", "")) for item in issues}
-    issues_with_repairs = issues + [item for item in mechanical if item["loc"] not in existing_locs]
+    # v7.47：收集 wont_fix 章号——机械候选发现阶段跳过，尊重用户"这章不修了"的决定
+    wont_fix_chapters = set()
+    for item in issues:
+        if item.get("status") == "wont_fix":
+            wont_fix_chapters.update(int(x) for x in re.findall(r"第\s*(\d{1,6})\s*章", str(item.get("loc", ""))))
+    mechanical = discover_mechanical_candidates(root, round_no, wont_fix_chapters)
+    # v7.47：机械候选只在机械候选之间去重——此前与 full_review 队列项按裸 loc 混同
+    # 去重，而机械候选只会出现在有问题的章节、这些章几乎总已被入队（命中率近 100%），
+    # 导致 apply-mechanical 几乎永远空转，机械修复管线事实死亡
+    mech_locs, extra = set(), []
+    for item in mechanical:
+        if item["loc"] in mech_locs:
+            continue
+        mech_locs.add(item["loc"])
+        extra.append(item)
+    issues_with_repairs = issues + extra
     plan = {
         "version": SKILL_VERSION,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -113,7 +137,11 @@ def resolve_targets(root):
     plan = load_plan(root)
     expected = plan.get("queue_sha256")
     if expected and expected != queue_sha256(root):
-        raise ValueError("修复队列已变化：当前队列与 prepare 时不一致，拒绝直接写入；请重新 prepare")
+        raise ValueError("修复队列已变化：当前队列与 prepare 时不一致，拒绝直接写入；请重新 prepare 后重试")
+    # v7.47：章节目录回退与 full_review.py 对齐——无 书稿/ 目录时用项目根本身，
+    # 此前章节放在项目根的项目机械修复 glob 恒为空
+    book_dir = root / "书稿"
+    base = book_dir if book_dir.is_dir() else root
     targets = []
     seen = set()
     for issue in plan.get("issues", []):
@@ -124,8 +152,8 @@ def resolve_targets(root):
         loc = str(issue.get("loc", ""))
         chapter_nums = {int(x) for x in re.findall(r"第\s*(\d{1,6})\s*章", loc)}
         for number in sorted(chapter_nums):
-            matches = sorted((root / "书稿").glob(f"第{number:03d}章*"))
-            matches += sorted((root / "书稿").glob(f"第{number}章*"))
+            matches = sorted(base.glob(f"第{number:03d}章*"))
+            matches += sorted(base.glob(f"第{number}章*"))
             for path in matches:
                 if path.is_file():
                     path = path.resolve()
@@ -157,13 +185,41 @@ def apply_mechanical(root, files):
     return {"snapshot": str(snap), "files": [str(p) for p in files], "repair": result}
 
 def verify(root, full=False):
-    command = [sys.executable, str(Path(__file__).resolve().parent / "full_review.py"), str(root), "--json"]
+    # v7.47：补 --no-write——此前 verify 触发 full_review 完整写路径（队列 round+1
+    # 全量重建、issue_id 全换、报告覆写），命令名暗示只读实为最重写操作，
+    # 且与 chapter_readiness.py:113 的全文审稿 Gate 策略直接矛盾；
+    # mark-fixed 标记中途跑一次 verify 即令全部标记对不上号
+    command = [sys.executable, str(Path(__file__).resolve().parent / "full_review.py"),
+               str(root), "--json", "--no-write"]
     if full:
         command.insert(-1, "--strict")
     result = run_cmd(command, root)
     audit_log.append_event(root, "repair_verification", str(QUEUE), "verified" if result["ok"] else "needs_review",
                            {"exit_code": result["exit_code"]})
     return result
+
+def register_mechanical_fixes(root, plan):
+    """v7.47：把本次 apply 的机械候选项以 status=auto_fixed 登记进队列（P2-1 修复）。
+    此前 auto_fixed 只进审计日志——full_review 二审只读队列不读日志，
+    机械修复成果在状态机与回归记忆中完全无痕（注释承诺的"cycle 单独登记"从未实现）。"""
+    mech_issues = [i for i in plan.get("issues", [])
+                   if i.get("repair_mode") == "mechanical_candidate"]
+    if not mech_issues:
+        return 0
+    try:
+        path, doc = repair_runner.load_queue(root)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return 0
+    known = {i.get("issue_id") for i in doc.get("issues") or []}
+    added = 0
+    for issue in mech_issues:
+        if issue["issue_id"] in known:
+            continue
+        doc.setdefault("issues", []).append({**issue, "status": "auto_fixed"})
+        added += 1
+    if added:
+        repair_runner.save_queue(path, doc)
+    return added
 
 def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
@@ -200,11 +256,19 @@ def main(argv=None):
             else:
                 files = resolve_targets(root)
                 applied = apply_mechanical(root, files)
+                # v7.47：verify 前先把机械修复成果以 auto_fixed 登记进队列，
+                # 让后续 full_review 二审把它们当"上轮已修复"处理（resolved_log/回归记忆生效）
+                registered = register_mechanical_fixes(root, plan)
                 checked = verify(root, args.full)
                 verified_status = "auto_fixed" if checked["ok"] else "open"
                 audit_log.append_event(root, "mechanical_repair_verified", str(QUEUE), verified_status,
-                                       {"exit_code": checked["exit_code"], "snapshot": applied.get("snapshot")})
-                result = {"plan": str(path), "apply": applied, "verify": checked, "ok": bool(checked["ok"])}
+                                       {"exit_code": checked["exit_code"], "snapshot": applied.get("snapshot"),
+                                        "registered_auto_fixed": registered})
+                # v7.47：ok 不再只等于 full_review 退出码（未传 --full 时有 P0 也返回 0，
+                # 导致"什么都没修也报成功"）——要求实际修复执行成功且确有文件被处理
+                result = {"plan": str(path), "apply": applied, "verify": checked,
+                          "ok": bool(checked["ok"]) and bool(applied["repair"]["ok"]) and bool(applied["files"]),
+                          "registered_auto_fixed": registered}
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"[✗] 修复编排失败：{exc}")
         return 2

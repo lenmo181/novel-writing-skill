@@ -38,10 +38,15 @@ from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "web-novel-writing"
-SERVER_VERSION = "7.46.0"
+SERVER_VERSION = "7.50.0"
 DEFAULT_TIMEOUT = 300
 
-# 只暴露只读 / 校验类脚本；写盘类脚本刻意排除
+# 只暴露无默认写盘副作用的脚本；写盘类脚本刻意排除
+# v7.47：READMEONLY 语义修正——原 19 项白名单中 export_assistant_txt 默认即写盘
+# （无需参数即写 <项目根>/导出/，--out 可写任意路径），已移出本集合（导出请走本地 CLI）。
+# 其余脚本中多个支持 --out/--force 任意路径写盘，由 run_script 的参数黑名单兜底
+# （见 BANNED_FLAGS）；review_skeleton 默认写 mind/审校/ 是 Gate 流程内标准产物位置，
+# 属流程必需，任意路径写入已被黑名单挡住。
 READONLY_TOOLS = {
     "check_chapter.py",
     "chapter_readiness.py",
@@ -61,8 +66,15 @@ READONLY_TOOLS = {
     "lint_skill.py",
     "eval_skill.py",
     "doctor.py",
-    "export_assistant_txt.py",
+    # v7.49：事实台账核验（只读）
+    "fact_ledger.py",
 }
+
+# v7.47：只读通道参数黑名单——白名单脚本中多个支持 --out/--force 任意路径写盘
+# （chapter_readiness/chapter_diff/continuity_check/project_audit/project_health/
+# entity_index/research_audit/review_skeleton），
+# 经 run_skill_tool 透传即可放大为任意文件写，一律拒绝。
+BANNED_FLAGS = {"--out", "--force", "--encoding", "--package-smoke"}
 
 
 # --------------------------------------------------------------------------- #
@@ -198,6 +210,10 @@ def run_script(script: str, args: list[str], timeout: int = DEFAULT_TIMEOUT) -> 
     target = scripts_dir / script
     if script not in READONLY_TOOLS:
         return {"error": "脚本 %s 不在只读白名单内，拒绝执行" % script}
+    # v7.47：只读通道参数黑名单（--out=path 形式取 = 前段判断）
+    for a in args:
+        if a.split("=")[0] in BANNED_FLAGS:
+            return {"error": "参数 %s 被拒绝：只读通道不允许写盘参数" % a}
     if not target.is_file():
         return {"error": "脚本不存在：%s" % target}
     try:
@@ -214,10 +230,17 @@ def run_script(script: str, args: list[str], timeout: int = DEFAULT_TIMEOUT) -> 
         return {"error": "脚本执行超时（%ss）：%s" % (timeout, script)}
     except OSError as exc:
         return {"error": "脚本启动失败：%s" % exc}
+    # v7.47：stdout 截断到 200KB——full_review --strict 级别的大报告可能撑爆宿主消息尺寸
+    stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
+    truncated = ""
+    if len(stdout) > 200_000:
+        stdout, truncated = stdout[:200_000], "（stdout 超 200KB 已截断）"
     return {
         "exit_code": proc.returncode,
-        "stdout": (proc.stdout or "").strip(),
-        "stderr": (proc.stderr or "").strip(),
+        "stdout": stdout,
+        "stderr": stderr,
+        **({"truncated": truncated} if truncated else {}),
     }
 
 
@@ -240,15 +263,17 @@ def call_tool(name: str, arguments: dict) -> dict:
     if name == "check_chapter":
         path = str(arguments.get("path", "")).strip()
         if not path:
-            return {"isError": True, **_text("缺少必填参数 path")}
+            raise ValueError("缺少必填参数 path")
         res = run_script("check_chapter.py", [path])
     elif name == "chapter_readiness":
         root = str(arguments.get("project_root", "")).strip()
         chapter = str(arguments.get("chapter", "")).strip()
         if not root or not chapter:
-            return {"isError": True, **_text("缺少必填参数 project_root / chapter")}
+            raise ValueError("缺少必填参数 project_root / chapter")
         args = [root, chapter]
-        if arguments.get("full"):
+        # v7.47：is True 严格判断——此前 arguments.get("full") 直接判真，
+        # LLM 传字符串 "false" 也会启用 --full
+        if arguments.get("full") is True:
             args.append("--full")
         res = run_script("chapter_readiness.py", args)
     elif name == "doctor":
@@ -259,10 +284,10 @@ def call_tool(name: str, arguments: dict) -> dict:
         if not isinstance(raw_args, list) or not all(
             isinstance(a, str) for a in raw_args
         ):
-            return {"isError": True, **_text("args 必须是字符串数组")}
+            raise ValueError("args 必须是字符串数组")
         res = run_script(script, raw_args)
     else:
-        return {"isError": True, **_text("未知工具：%s" % name)}
+        raise ValueError("未知工具：%s" % name)
 
     if "error" in res:
         return {"isError": True, **_text(res["error"])}
@@ -297,6 +322,12 @@ def handle(req: dict):
 
 
 def main() -> int:
+    # v7.47：stdio UTF-8 重配置——此前未 reconfigure，中文 Windows（cp936 locale）下
+    # 输出含 ✓/✗（U+2713/2717，GBK 码表外）即 UnicodeEncodeError 杀死整个 Server；
+    # 输入侧中文路径按 GBK 解码成乱码导致"脚本不存在"。与 tools/run_tests.py 同款保护。
+    for stream in (sys.stdin, sys.stdout):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     out = sys.stdout
     for line in sys.stdin:
         line = line.strip()
@@ -305,6 +336,11 @@ def main() -> int:
         try:
             req = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        # v7.47：类型检查——json.loads 对 [1,2]/"str"/42/null/batch 数组均成功，
+        # 此前 rid = req.get("id") 在 try 外，一行非对象消息即 AttributeError
+        # 穿透 main() 杀死整个会话（单行输入 = 服务永久死亡）
+        if not isinstance(req, dict):
             continue
         rid = req.get("id")
         if rid is None:  # 通知类消息（notifications/initialized 等）
@@ -317,6 +353,13 @@ def main() -> int:
                 "jsonrpc": "2.0",
                 "id": rid,
                 "error": {"code": -32601, "message": "Method not found: %s" % exc},
+            }
+        except ValueError as exc:
+            # v7.47：未知工具名/缺必填参数按 MCP 规范回 -32602 Invalid params
+            reply = {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "error": {"code": -32602, "message": "Invalid params: %s" % exc},
             }
         except Exception as exc:  # noqa: BLE001 - 兜底，避免打断会话
             reply = {

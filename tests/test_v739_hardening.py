@@ -83,7 +83,7 @@ class TestV739Hardening(unittest.TestCase):
                 (root / "书稿" / f"第{n:03d}章_测试.md").write_text(f"第{n}章 测试\n\n正文。\n", encoding="utf-8")
             (root / "mind" / "章节目录.md").write_text("| 章号 | 节奏类型 |\n|---|---|\n| 1 | 缓冲-对话 |\n| 2 | 缓冲-线索 |\n| 3 | 缓冲-代价 |\n| 4 | 缓冲-对话 |\n", encoding="utf-8")
             review = fr.Review(root)
-            review.scan_rhythm(root, [])
+            review.scan_rhythm(root)
             self.assertTrue(any("缓冲型节奏合计连续 4 章" in item["msg"] for item in review.issues))
 
     def test_grep_limit_zero_has_zero_history(self):

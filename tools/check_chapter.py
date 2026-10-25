@@ -29,6 +29,9 @@ from collections import Counter
 
 import config
 from config import (
+    AI_TASTE_CONTRAST_MAX,
+    AI_TASTE_IMAGERY_MAX_PER_K,
+    AI_TASTE_IMAGERY_MIN_LEN,
     DEFAULT_AI_SCORE_HARD_MAX,
     DEFAULT_CHAPTER_MAX,
     DEFAULT_CHAPTER_MIN,
@@ -51,9 +54,11 @@ except Exception:
     pass
 
 # 可计数字符：汉字 + 中文标点（含弯引号、省略号、破折号）
+# v7.47：排除 U+3000 全角空格本身——此前首行缩进「　　他说」每段 +2 可计字符，
+# 100 章 = +200 字注水，可能把 1830 净字顶过 2000 下限（虚假通过）
 COUNTABLE = re.compile(
     "[\u4e00-\u9fff\u3400-\u4dbf"
-    "\u3000-\u303f"
+    "\u3001-\u303f"
     "\uff00-\uffef"
     "\u2018\u2019\u201c\u201d\u2014\u2026]"
 )
@@ -105,8 +110,10 @@ def quote_violations(body, mode):
     elif mode == "any":
         pass  # 容错口径：不判引号违规
     else:  # chal
-        if straight_d or straight_s:
-            bad.append(f"半角直引号×{straight_d + straight_s}")
+        # v7.47：半角单引号 ' 不计违规——中英混排文本 don't/it's 合法存在，
+        # 中文弯引号流里 ASCII 撇号无引号用途，计入会误伤（此前假阳性硬伤）
+        if straight_d:
+            bad.append(f"半角直引号×{straight_d}")
         if corner:
             bad.append(f"直角引号×{corner}")
     return bad
@@ -176,23 +183,67 @@ BIGRAM_WHITELIST = set([
     "现在", "时候", "起来", "过来", "出来", "一声", "一下", "不是", "就是",
     "但是", "可是", "如果", "因为", "所以", "你们", "我们", "我的", "他的",
     "她的", "这是", "那是", "可以", "不会", "这么", "那么", "怎么", "还是",
-    "也是", "都是", "说着", "看着", "对了", "说道", "話说",
+    "也是", "都是", "说着", "看着", "对了", "说道", "话说",
 ])
 
 # AI味指数（粗测）用：比喻词、情绪词
 SIMILE_WORDS = ["好像", "像是", "就像", "似的", "般的", "般地"]
+
+# ── v7.49 量化 AI 味硬指标（对标 chinese-novelist-skill 量化口径）──
+# 「不是A是B」句式：AI 生成文本最稳定的结构指纹之一。
+# 覆盖「不是…而是…」「不是…是…」「并非…而是…」三类，命中即计一处。
+CONTRAST_RE = re.compile(
+    r"(?:不是|并非)[^，。！？；：\n]{1,12}?(?:而是|是)|"
+    r"(?:不是|并非)[^，。！？；：\n]{1,12}?[，、][^，。！？；：\n]{0,8}?是"
+)
+# 单一意象：比喻词/形容骨架引出的意象词（如「月光」「刀锋」「雪」）。
+# 只统计长度 ≥ AI_TASTE_IMAGERY_MIN_LEN 的意象，单字不计入。
+# 识别两类：(1) 比喻词领起（像月光一般）；(2) 意象词直接作主语（月光洒在刀上）。
+# 第二类是网文里更常见的写法——若只认比喻词领起，会漏掉绝大多数重复意象。
+IMAGERY_LEAD_RE = re.compile(
+    r"(?:像|如同|仿佛|犹如|好似|宛如|好像|像是|就像|似的|一般|般地|如)"
+    r"(?:是|着|的)?\s*([一-鿿]{%d,4})" % AI_TASTE_IMAGERY_MIN_LEN
+)
+# 意象词直接作主语：句首 2-4 字意象词 + 动作/形容
+IMAGERY_SUBJ_RE = re.compile(
+    r"(?:^|[。！？；：\n“”])\s*([一-鿿]{%d,4}?)(?=洒|落|沉|铺|照|映|闪|晃|流|飘|染|爬|淌|蔓|爬升|浮|裂|燃|滚|压|罩|笼|悬)"
+    % AI_TASTE_IMAGERY_MIN_LEN
+)
+
+
+def count_contrast_patterns(body):
+    """统计「不是A是B」句式处数（AI 结构指纹）。"""
+    return len(CONTRAST_RE.findall(body))
+
+
+def count_repeated_imagery(body):
+    """统计同一意象在同一章内的重复次数。
+
+    返回 [(意象, 次数), ...]，只保留出现 ≥2 次的意象，按次数降序。
+    两类写法都计入：比喻词领起（像月光一般）与意象词直接作主语（月光洒在刀上）。
+    """
+    counts = Counter()
+    for m in IMAGERY_LEAD_RE.finditer(body):
+        counts[m.group(1)] += 1
+    for m in IMAGERY_SUBJ_RE.finditer(body):
+        counts[m.group(1)] += 1
+    return [(word, n) for word, n in counts.most_common() if n >= 2]
 EMOTION_WORD_LIST = ["愤怒", "悲伤", "高兴", "快乐", "害怕", "恐惧", "紧张", "失望",
                      "痛苦", "委屈", "羞愧", "尴尬", "欣慰", "绝望", "无奈", "心疼",
                      "得意", "后悔", "震惊", "惊讶", "疑惑", "茫然"]
 
-TITLE_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]")
+# v7.47：统一章节标题口径（对齐 retention_check.py:41）——支持全角数字、「两」、
+# 第与数字间空格（此前 `第３章`/`第 3 章` 不识别 → 第13项与开篇闸门静默跳过）
+TITLE_RE = re.compile(r"^\s*第[0-9０-９零一二三四五六七八九十百千万两]{1,7}\s*[章节回]")
 # v7.10 新增：章节名机械检查口径（真源=常量表·三B）
-TITLE_PREFIX_RE = re.compile(r"^\s*第[0-9零一二三四五六七八九十百千万]{1,7}[章节回]\s*(.*)$")
+TITLE_PREFIX_RE = re.compile(r"^\s*第[0-9０-９零一二三四五六七八九十百千万两]{1,7}\s*[章节回]\s*(.*)$")
 TITLE_SEPARATORS_RE = re.compile(r"^[·：:、\-\s]+")
 # 全等命中即硬伤（空泛总结题；半空泛如「初入XX/XX前夕」归第28项 AI 语义核验）
 GENERIC_TITLES = {"开端", "开始", "新的开始", "新的一天", "正文", "无题",
                   "过渡", "章节", "连载", "更新", "日常", "小插曲"}
-SKIP_LINE_RE = re.compile(r"^\s*(#[^#]|>|```|\||---+|===+|\*{3,})")
+# v7.47：`#{1,6}\s` 替代 `#[^#]`——此前 `## 小节标题`/`### 小节` 不匹配任何剔除规则，
+# 静默计入正文（参与字数/词频统计，可能把 1998 字顶过 2000 下限造成虚假通过）
+SKIP_LINE_RE = re.compile(r"^\s*(?:#{1,6}\s|>|```|\||-{3,}|={3,}|\*{3,})")
 MARKER_RE = re.compile(r"【[^】]*(?:段完成|累计|对话约|全章对话|广告位)[^】]*】")
 # v7.17：正文里禁止夹带的元信息行（自动化写作易残留）
 META_LINE_RE = re.compile(r"^\s*(?:章节更新时间|更新时间|本章字数|字数统计|总字数|发布时间)[：:]")
@@ -219,15 +270,20 @@ NAME_ACTION_RE = re.compile(
 PRONOUN_RE = re.compile(r"[他她我它你]")
 # ②③ 做梦梦醒 / "XX睁开眼"式醒来（只看开篇窗口）
 DREAM_OPEN_RE = re.compile(r"梦[中境]|梦里|做梦|一场梦|是梦|噩?梦(?:惊|吵)?醒|从梦中|惊醒")
-WAKE_OPEN_RE = re.compile(r"睁开[了双一一]?.{0,2}眼|睁眼|醒了过来|醒了|睡眼|睡意")
+# v7.47：删「睡意」——「压下睡意/毫无睡意」是清醒场景，不是醒来信号（此前假阳性硬伤）
+WAKE_OPEN_RE = re.compile(r"睁开[了双一一]?.{0,2}眼|睁眼|醒了过来|醒了|睡眼")
 # ④ 照镜子自视外貌
 MIRROR_OPEN_RE = re.compile(
     r"(?:铜?镜[子里的面]{1,2}|镜中|镜里|倒影)(?:[^。！？\n]{0,14})"
     r"(自己|这张脸|脸|眉|眼|眸|容颜|容貌|模样|长相|身材|皮肤|肤)"
 )
 # ⑤ 大段回忆身世倒叙（前3段叙述部分命中≥2个标记）
-RECALL_MARKERS = ["多年前", "十年前", "数年前", "几十年前", "自幼", "从小", "小时候", "那年",
-                  "想当年", "记忆里", "记忆中", "回忆起", "回忆", "曾经", "往昔", "往事", "身世"]
+# v7.47：改正则非重叠匹配（长词优先）——此前 sum(count(w)) 让「回忆」⊂「回忆起」、
+# 「记忆」⊂「记忆里」同一短语重复计数，单个回忆短语即凑够 2 个标记触发硬伤（假阳性）
+RECALL_RE = re.compile(
+    "多年前|十年前|数年前|几十年前|想当年|自幼|从小|小时候|"
+    "回忆起|记忆里|记忆中|曾记得|往事|往昔|身世|回忆|那年|曾经"
+)
 # ⑥ 世界观解说（前3段叙述部分命中即中——只抓说书腔也救不了的旁白解说）
 EXPO_MARKERS = ["在这个世界", "这方世界", "众所周知", "所谓的", "修仙界", "修行界", "大陆上",
                 "自古以来", "世界规则", "灵气复苏", "天地间有", "世间万物"]
@@ -335,7 +391,7 @@ def opening_gate(body, lines, span_re, chapter_index, failures, warnings):
         return (dialogue_chars(p, span_re) / t) if t else 0.0
 
     # ① 天气/景色/时间交代：首句（前两个句读单元）命中且整句无人物信号
-    first_sent = re.split("[。！？…]", head, 1)[0]
+    first_sent = re.split("[。！？…]", head, maxsplit=1)[0]
     wm = WEATHER_TIME_OPEN_RE.match(head.lstrip("\u3000“\"「"))
     if wm and not person_signal(first_sent):
         hits.append(f"禁开头①「{wm.group(1)}」天气/景色/时间开场——第一句禁铺陈交代，改人物+动作直入")
@@ -351,8 +407,8 @@ def opening_gate(body, lines, span_re, chapter_index, failures, warnings):
     mm = MIRROR_OPEN_RE.search(window)
     if mm:
         hits.append(f"禁开头④ 照镜子自视外貌（…{mm.group(0)[:12]}…）——外貌写进动作与他人反应")
-    # ⑤ 大段回忆身世倒叙：前3段叙述部分≥2个标记
-    recall_n = sum(narration.count(w) for w in RECALL_MARKERS)
+    # ⑤ 大段回忆身世倒叙：前3段叙述部分≥2个标记（v7.47 非重叠计数）
+    recall_n = len(RECALL_RE.findall(narration))
     if recall_n >= 2:
         hits.append(f"禁开头⑤ 回忆身世倒叙嫌疑（前3段命中{recall_n}个回忆标记）——回忆切碎塞进当下事件")
     # ⑥ 世界观解说
@@ -497,8 +553,10 @@ def ai_lite_score(body, lines):
     sents = [s for s in re.split("[。！？…]+", body) if count_chars(s) > 0]
     sent_lens = [count_chars(s) for s in sents]
     para_lens = [count_chars(ln) for ln in lines]
-    sent_sd = statistics.pstdev(sent_lens) if len(sent_lens) > 3 else 20
-    para_sd = statistics.pstdev(para_lens) if len(para_lens) > 3 else 60
+    # v7.47：仅空列表取默认兜底（防 StatisticsError），1-3 句实算——
+    # 此前 ≤3 句恒取虚高默认 20/60，短篇章节 AI 指标无区分度
+    sent_sd = statistics.pstdev(sent_lens) if sent_lens else 20.0
+    para_sd = statistics.pstdev(para_lens) if para_lens else 60.0
     simile = sum(body.count(w) for w in SIMILE_WORDS)
     emo = sum(body.count(w) for w in EMOTION_WORD_LIST)
     simile_d = simile / total * 1000 if total else 0
@@ -622,7 +680,10 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
     failures, warnings = [], []
 
     # ── 13 章节名规范（v7.10 新增；30项校验第13项，口径=常量表·三B）──
-    title_lines = [ln.strip() for ln in text.splitlines() if TITLE_RE.match(ln)]
+    # v7.47：剥 `#` 前缀后再匹配——此前用原始行匹配而 TITLE_RE 要求「第」开头，
+    # markdown 文件 `# 第1章 风起` 恒不匹配 → 第13项静默跳过 + 误报警告
+    title_lines = [ln.strip() for ln in text.splitlines()
+                   if TITLE_RE.match(ln.strip().lstrip("#").lstrip())]
     title, t_len = "", 0
     if title_lines:
         if len(title_lines) > 1:
@@ -780,6 +841,30 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
         warnings.append(f"无引号内心戏仅 {len(inner_voice)} 处（<3）——全书AI味重灾区：主角必须脑子在线，参考热榜『别拜了妹子！』式脑内喊话")
 
 
+    # ── v7.49 量化 AI 味硬指标（对标 chinese-novelist-skill 量化口径；警告级，非硬卡）──
+    # 口径说明：这两项是「定向改写的线索」而非硬门槛——误伤成本高于收益，
+    # 因此只告警不进 failures；作者过一眼决定改不改。
+    contrast_n = count_contrast_patterns(body)
+    if contrast_n > AI_TASTE_CONTRAST_MAX:
+        warnings.append(
+            f"「不是A是B」句式 {contrast_n} 处（>{AI_TASTE_CONTRAST_MAX} 处/章）"
+            f"——AI 结构指纹最密的一类；改写时直接陈述事实，砍掉否定-肯定对举"
+        )
+    else:
+        print(f"[✓] 「不是A是B」句式 {contrast_n} 处（≤{AI_TASTE_CONTRAST_MAX} 处/章）")
+    if total:
+        imagery_limit = max(1, total // 1000 * AI_TASTE_IMAGERY_MAX_PER_K)
+        repeated = count_repeated_imagery(body)
+        over = [(w, n) for w, n in repeated if n > imagery_limit]
+        if over:
+            detail = "、".join(f"「{w}」×{n}" for w, n in over[:5])
+            warnings.append(
+                f"单一意象超频（限额 {imagery_limit} 次/千字）：{detail}"
+                f"——同一意象反复用会显出模板感；换具体意象或直接删比喻"
+            )
+        else:
+            print(f"[✓] 单一意象无超频（限额 {imagery_limit} 次/千字）")
+
     # ── 警告级：情绪直贴（Show don't tell）──
     tell_hits = [m.group(0) for p in EMOTION_PATTERNS for m in p.finditer(body)]
     if tell_hits:
@@ -807,10 +892,11 @@ def check(path, wmin, wmax, quote_mode="chal", dialog_min=DIALOG_MIN_DEFAULT, di
     dialogue_symptom_checks(body, lines, span_re, warnings)
 
     # ── 警告级：高频二字词近距离复用 ──
+    # v7.47：先过滤再取 Top8——此前 most_common(8) 先截断，白名单词霸榜挤掉真实候选
     hanzi_only = "".join(ch for ch in body if HANZI.match(ch))
     grams = Counter(hanzi_only[i:i + 2] for i in range(len(hanzi_only) - 1))
-    hot = [(w, n) for w, n in grams.most_common(8)
-           if n >= 8 and w not in BIGRAM_WHITELIST and not (w[0] == w[1])]
+    hot = [(w, n) for w, n in grams.most_common()
+           if n >= 8 and w not in BIGRAM_WHITELIST and not (w[0] == w[1])][:8]
     if hot:
         warnings.append("高频词疑似复用: " + "、".join(f"「{w}」×{n}" for w, n in hot) + "——查是否同词近距离重复")
 

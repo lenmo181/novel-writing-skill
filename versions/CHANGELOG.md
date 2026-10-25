@@ -3,6 +3,159 @@
 > **v7.40 起版本历史唯一真源**（SKILL.md 不再内嵌版本历史，主文件只留一行指针）。
 > 版本日志四段式约定：每版分「更新 / 修复 / 降级删除 / 验证证据」四段（2026-09-30 用户裁定）。
 
+## v7.50（2026-10-25）：同类小说研究与原创性护栏版
+
+### 更新
+
+- **同类小说研究（新增）**：加入 `tools/similar_novels.py`，按题材从 TTNovels 选最多 3 本不同作者的公开作品，读取分类、详情元数据、简介短摘和章节标题，生成 `研究/同类小说研究.md/json` 结构卡；24 小时缓存，写章上下文包可按项目配置自动刷新。
+- **原创性护栏（新增）**：研究报告固定“只提炼结构功能”的约束，可用 `--check-draft` 检测连续 12 字原句和高重合片段风险，并给出替换人物目标、场景机制、代价与转折顺序的改写提示。
+- **项目接入**：`init_project.py` 生成 `研究/同类小说配置.json`（默认关闭联网）；`context_pack.py` 在 `enabled=true` 且 `allow_network=true` 时自动刷新研究缓存并以低权重纳入上下文。
+- **视角约束**：写作默认第三人称、单主角限知；用户明确需要时才在场景边界少量切换角色视角，研究卡不会把参考作品的多视角写法自动带入新书。
+
+### 修复
+
+- 修复研究报告对站点 SEO 元描述的重复：优先使用结构化数据简介并去除书名/作者前缀；章节目录过滤“查看全部章节”导航项。
+- 无外部缺陷上报；本版为功能与治理维护轮。
+
+### 降级删除
+
+- **明确不接正文抓取**：不下载、不保存、不输出同类作品章节正文；只保留公开元数据、简介短摘和章节标题，避免把研究功能变成原文复刻通路。
+
+### 验证证据
+
+- 新增 4 项离线回归：HTML 解析、三本选择与缓存、结构卡、原创性重合提示；相关回归与既有项目初始化/上下文/规模测试全绿。
+- 真机实测 TTNovels：悬疑题材成功选出 3 本不同作者作品，生成结构卡和来源链接；`doctor --runtime-smoke` 41/41、`lint_skill.py`、`check_refs.py`、`release_check.py` 通过（版本 tag 仍由发布流程单独处理）。
+
+---
+
+## v7.49（2026-10-21）：三项目对标集成版
+
+### 更新
+
+- **事实台账（新增，RB-032/033/034）**：新增档案 `mind/事实台账.md` 与工具 `tools/fact_ledger.py`。对标 chinese-novelist-skill「设定与事实词典」与 AI_NovelGenerator `entity_state_history`，落地三条纪律——**先登记后写**（位置化事实：book_start / volume_start / chapter_before:N / chapter_after:N / unknown）、**到期必兑**（`FACT_DUE_UNPAID`）、**数字事实优先登记**（`FACT_DIGIT_UNREGISTERED`）。台账自动生成骨架（`init_project.py`）、自动进入上下文包（`context_pack.py`）、并入项目健康汇总（`project_health.py`）；核验工具**只读**，不替作者决定剧情。同步新增手册 `references/事实台账.md`。
+- **证据引文不可篡改校验（RB-035）**：对标 AI_NovelGenerator `CHAPTER_CHECK_QUOTE_MISMATCH`。语义审校的 `evidence` 由纯字符串升级为 `{text, quote, offset}` 对象形态，`chapter_readiness.py` 服务端按字符偏移逐字比对正文（`正文[offset:offset+len(quote)] == quote`），引文对不上即判 Gate 失败——**AI 编造的"原文摘录"不再能糊过交付门**。新增 `review_skeleton.py --find-quote` 反查引文偏移，避免手工数位置。schema 同步扩展（`schemas/chapter_semantic_review.schema.json`），旧字符串形态向后兼容。
+- **伏笔到期三层提醒（RB-036）**：对标 MuMuAINovel 三层提醒。`continuity_check.py` 新增**必须回收**（`FORESHADOW_DUE`）、**已超期**（`FORESHADOW_OVERDUE`，high 级）、**近期待回收**（`FORESHADOW_DUE_SOON`）三级判定，已回收/已废弃伏笔不参与提醒（避免对已兑现的伏笔催债）；伏笔状态白名单扩展「部分回收」。
+- **量化 AI 味指标（RB-037）**：对标 chinese-novelist-skill 量化硬指标，接入**单章可机械判定**的两项——「不是A是B」≤2 处/章、单一意象 ≤1 次/千字。意象识别覆盖"比喻词领起"与"意象词直接作主语"两类写法。
+- **常量与治理同步**：`tools/config.py` 新增 12 个常量（事实台账/伏笔提醒/量化 AI 味/期待线阈值），全部纳入 `lint_skill.py` 漂移守护；`references/常量表.md` 新增「十四、事实台账与量化 AI 味指标」章节；`references/规则台账.md` 新增 RB-032~RB-038 七条；`references/开源融合.md` 新增「七、三项目对标与差距分析」章节；`references/事实台账.md` 新建手册；`references/目录结构.md` 与 `references/版本台账.md` 同步登记。
+- **分发封装同步**：MCP Server 与 Dify 插件的只读白名单（双侧共享集合）新增 `fact_ledger.py`。
+
+### 修复
+
+- **期待线悬空检查现网崩溃（P0）**：`continuity_check.py` 引用了 `EXPECTATION_STALE_CHAPTERS`，但该常量自 v7.40 引入期待线台账起**只写了引用点、从未在 `config.py` 定义**——项目 `mind/期待线.md` 一旦含「活跃」状态条目，即抛 `NameError` 崩溃，整条连续性检查链（含 `chapter_readiness.py` 工程 Gate 与 `project_health.py` 汇总）全部中断。本地已复现确认，v7.49 将常量提到 `config.py` 作为真源，纳入 lint 漂移守护，并补 `RB-038` 登记。
+- **事实台账位置参数解析**：`chapter_before:12` 这类带章号的位置写法首版被误判为非法位置，已改为「位置基名 + 可选参数」解析，并区分「`unknown` 的参数即未知原因」与「`chapter_before/after` 缺章号参数」两种不同告警。
+- **数字事实阈值口径**：`FACT_LEDGER_MAX_PER_CHAPTER` 首版按全书累计次数统计，长篇跨章重复会被误报；现按章节隔离计数，并在报告统计单章峰值。
+- **发布元数据漂移**：MCP Registry `server.json`、英文 README、PyPI 构建示例与更新器独立回退版本曾停留在 v7.46；现统一纳入改版点位与 lint/回归守护。
+- **分发构建编码**：PyPI wheel 与 Dify 打包器在中文 Windows 的 cp936 终端打印 ✓/✅ 会抛 `UnicodeEncodeError`；现统一重配置 UTF-8 输出。
+
+### 降级删除
+
+- **无能力移除**。30 项校验的分级（脚本硬卡 13 + AI 语义 17）保持不变——本轮新增能力全部是既有校验项的取证与定位补充，**不新增第 31 项校验**，也**不新增任何硬卡**。
+- **明确不接**：「标志小动作 ≤8 次/全书」「格言式收尾 ≤3 次/全书」两项 chinese-novelist-skill 全书级口径，本轮不落地——与本技能既有「四、伏笔与回收」「三A、剧情推进力」口径重叠面大，且跨章统计无既有载体。理由记入《常量表·十四》与《开源融合·七》。
+- **明确不接**：MuMuAINovel 的向量检索（RAG）——与本技能「纯标准库零第三方依赖」硬约束冲突，`memory_search.py` 保持关键词检索。
+- **降级为不落地**：提示注入防护、13 式钩子分类、Agent 并行写作模式——原因与判定条件记入《开源融合·七·7.2》。
+
+### 验证证据
+
+- **回归 292 项全绿**（v7.48 的 251 项 + 本轮新增事实台账与治理回归）。
+- 治理三门全绿：`lint_skill.py` 通过、`check_refs.py` 无悬空引用（411 处）、`doctor.py` 通过——目录树登记 **93/93 全部一致**，冒烟清单 `RUNTIME_TOOLS` **40 项与 `tools/*.py` 全量对齐**（豁免 1 个纯模块 `config.py`）。
+- 真机实测：`fact_ledger.py` 对「到期第3章、当前第5章仍待回收」正确报 `FACT_DUE_UNPAID`；位置参数校验与 `unknown` 原因枚举逐项正确；台账只读性有专项断言（跑完检查后文件字节不变）。
+- **核心安全断言实测**：向语义审校记录注入正文中不存在的引文「林舟掏出了三两黄金」→ `chapter_readiness.py` 判定 `REVISE` 并报「引文与正文不符」；同一记录换成正文逐字一致的引文 → `PASS`。
+- 伏笔三层提醒实测：超期条目报 `FORESHADOW_OVERDUE`（high），已回收条目不误报。
+- 兼容性：两处既有测试随 API 演进同步更新（`test_v744_slim` 的 evidence 对象形态、`test_v732_open_source_gap` 的 `file_count` 20→21）。
+
+---
+
+## v7.48（2026-10-21）：可视化面板升级版
+
+### 更新
+
+- `tools/visualize.py` 由「九分区看板」升级为「十分区驾驶舱」，新增**写作分析**分区：写作热力日历（27 周 × 7 天，按日聚合章数与字数）、月度产出柱图、质量矩阵散点（字数 × 朱雀分，标注 2000 字下限与 80/90 分线）、节奏结构占比、主要人物出场频次（含「缺 N 章」缺席提示）、AI 味指数走势（0-10，4/6 双警戒线）
+- 总览重做为 6 张 KPI 卡（章节 / 总字数 / 朱雀均分与覆盖率 / 伏笔三态 / 距上次更新 / 低于 80 分章）+ 统一「待处理」预警箱：节奏预警、沉睡伏笔（埋设 ≥30 章未回收）、不足 2000 字、断更 ≥7 天、检测缺口、日期缺失一次列全，超 7 条折叠为「见对应分区」
+- 伏笔页新增健康环（已回收 / 推进中 / 未埋 + 回收率）与**埋设跨度条**（左圆点埋设章、右圆点预计或实际回收章，超出当前进度用虚线），沉睡伏笔单独预警
+- 检测页新增覆盖 / 危险 / 均分 KPI 与逐章检测明细表（章号 / 字数 / 朱雀分 / AI% / 墨尺 / 结论），默认展示最近 150 章
+- 交互升级：**Ctrl/⌘+K 命令面板**（章号、章节名、分区名模糊跳转，↑↓ 选择 + 回车）、深浅主题切换（localStorage 记忆，`?theme=dark` 可固定观感，与阅读器纸张 / 夜间主题相互独立）、顶栏面包屑与全书字数进度
+- 数据层新增只读派生统计 `derive()` 与容错解析 `_as_date` / `_first_int`：日期认 `2026-09-22`、`2026/9/22`、`2026年9月22日`；伏笔埋设章认 `第12章` / `12` / `12-15`。全部图表为手写 SVG，零外部依赖、单文件离线可用
+
+### 修复
+
+- 断更天数在章节日期为未来（预排期或手误）时算出**负数**：现钳到 0，当天显示「今天」
+- 字数分布柱图固定上限 3200，全书写短章时整图只剩底部一条：改为按数据自适应（下限 2200），2000 / 3600 参考线随之上移
+- 朱雀走势纵轴固定 0-100，分数常年 85+ 的书被压成一条直线：改为按数据自适应（最低分 -10 起），参考线超范围自动不画；超 160 个数据点按桶取均值，千章不再糊成实心带
+- 月度柱图仅两三个月数据时柱子撑到 250px：加 110px 上限
+- 命令面板原先把「字数 / 类型」也纳入匹配（搜「9」命中 1092 字的任意章）：收窄为章号 + 章节名 + 分区名
+
+### 降级删除
+
+- 总览移除旧 `.stat` 统计块与单卡「节奏预警」，统一并入 KPI + 预警箱（同一信息不再两处重复）
+
+### 验证证据
+
+- 回归：`tools/run_tests.py` 251 测试全绿（既有 visualize 契约 `scan_decisions` / `rhythm_warnings` / `apply_template` / `scan_scores` / `skill_version` / 阅读进度键 均未改动）
+- 边界实跑：空项目（0 章 0 档案）、仅档案无书稿、单章、300 章（收集 + 生成 1.84s / 0.6MB）四种画像均正常生成，无裸崩、空态齐全
+- 渲染验证：Edge headless 实截总览 / 写作分析 / 章节快照 / 伏笔 / 检测报告 / 阅读页 / 深色总览 / 命令面板 / 空项目共 9 张，`node --check` 通过生成脚本语法
+- 自检：doctor（目录树 91/91、版本真源 v7.48）+ lint_skill + check_refs（398 处引用零悬空）全绿
+
+---
+
+## v7.47（2026-10-18）：代码审查修复与封装加固版
+
+### 更新
+
+- MCP/Dify 只读通道新增**参数黑名单**（`--out`/`--force`/`--encoding`/`--package-smoke` 一律拒绝）：白名单脚本经 `run_skill_tool` 透传即可任意路径写盘的漏洞收口；`export_assistant_txt`（默认即写盘）移出只读白名单
+- MCP Server 未知工具名/缺必填参数按 MCP 规范返回 JSON-RPC `-32602`（此前返回 `isError`）；`full` 参数改 `is True` 严格判断；stdout 超 200KB 截断保护
+- 修复编排器 `cycle` 子命令新增 `registered_auto_fixed` 登记：机械修复成果以 `auto_fixed` 状态写入审稿队列，二审对比与回归记忆自此覆盖机械修复
+- `bump_version` 新增 `packaging/mcp/server.py` 的 `SERVER_VERSION` 登记点位，消除与 `config.SKILL_VERSION` 的手工漂移
+
+### 修复
+
+**P1（8 项，全部经实跑复现验证后修复）：**
+- `packaging/mcp/server.py:309`：非对象 JSON 行（batch 数组/字符串/数字/null）`req.get` 抛 AttributeError 穿透主循环——**一行坏消息杀死整个 MCP Server**；现类型检查后安全跳过
+- `packaging/mcp/server.py:299`：stdio 未 UTF-8 重配置——中文 Windows（cp936）下输出 `✓/✗`（GBK 码表外）即 `UnicodeEncodeError` 杀死 Server、中文路径输入变乱码；现入口统一 reconfigure
+- `check_chapter.py:355`：回忆标记 `sum(count(w))` 子串双计数（`回忆`⊂`回忆起`）——单个回忆短语凑够 2 个标记触发禁开头⑤硬伤，误杀正常开篇；改 `RECALL_RE` 非重叠匹配
+- `check_chapter.py:188/625`：标题识别三重失效（不认全角章号/「两」/「第 3 章」空格/markdown `#` 前缀）——第 13 项章节名校验与前 3 章开篇闸门对一整类文件静默跳过；统一 `CHAPTER_TITLE_RE` 口径（对齐 retention_check）
+- `grep_consistency.py:77`：快照文件带头标题（`# 角色状态快照`）+字段行即 `KeyError` 裸崩——违背"退出码恒 0"文档语义且吞掉已算完的 D 类结果；改 `setdefault` 兜底
+- `repair_orchestrator.py:83-84`：机械候选与审稿队列按裸 loc 混同去重——有问题的章几乎总在队列里（命中率近 100%），`apply-mechanical` 几乎永远空转，机械修复管线事实死亡；改机械候选独立去重，并显式实现 wont_fix 章跳过（原保护靠去重副作用）
+- `repair_orchestrator.py:160`：`verify` 未传 `--no-write`——名为验证实则静默重写队列+round+1+全部 issue_id 换新，与 `chapter_readiness.py:113` 策略矛盾；用户标记中途跑一次 verify 即令全部标记对不上号
+- `retention_check.py:32`：拟声词正则手写 `\uXXXX` 转义 8/10 写错（砰→砲、嗒→哔、喇→啦、呱→咔、嗤→嗡、唰→咚、咕嘟→咖嚓、轰隆→轰隅）——拟声词开场检测基本失效反误匹配；改汉字字面量
+
+**P2（26 项精选）：**
+- `bump_version.py:189-190`：verify 子进程缺 `encoding`——中文 Windows 普通 cmd 下 cp936 解码炸线程，真实校验信息全丢、成功路径假绿（已实测复现）；补 `encoding="utf-8", errors="replace"`
+- `bump_version.py:216-217`：`--from` 无格式校验——`--from 7.4` 笔误使版本台账规则变裸子串替换，把 `v7.46` 静默改成 `v7.56` 落盘损坏；补 VERSION_RE 校验 + 台账规则改边界正则；`--to` 同版本直接拒绝
+- `bump_version.py` 落盘改两阶段原子写（先算完零错误才写盘；单文件 tmp+`os.replace`+`.bak`）——消除混合版本状态与半截文件；读写均 `newline=""` 保留原行尾；SKIP_DIRS 补 packaging/assets/tests 对齐 doctor 豁免；difflib 头部判定修 markdown 水平线误排
+- `full_review.py:73`：索引模式字典推导按章号去重——重复章号（复制章节忘改号）使"章节号重复"P0 检测静默失效且被覆盖文件整体漏审；改保留全部文件；索引/回退两模式口径统一（.md+.txt 合并、unrecognized 两路上报、同用 CHAPTER_FILE_RE）
+- `full_review.py:300-301`：`issue_key` 含实时测量值——正文微小改动即改变 key，fixed 状态继承与回归检测静默失效；msg 数字归一化
+- `full_review.py:389`：队列直写非原子无 .bak——写一半崩溃/并发致 round 重置、全态静默丢失；改原子写+.bak 并透传 repair_runner 的 meta 审计字段
+- `full_review.py:366-372`：畸形队列（`"round": null`/issues 含非 dict）TypeError 裸崩；补结构校验与宽异常捕获
+- `full_review.py` REPAIR_MAP 重复键（`("跨章","P2")` 后者静默覆盖前者）——ngram 换皮重复问题拿到伏笔沉睡的修复建议；加 tag 维度消除键冲突；ngram 相邻章定位改用真实上一章章号；resolved_log 总量封顶 500；删 scan_rhythm 死参数
+- `update_skill.py`：`input()` EOFError、下载中断 `IncompleteRead` 均未捕获裸崩；补捕获与非交互环境提示；`replace_skill` 改同分区 rename 近原子交换（消除清空-复制间的进程死亡窗口）；`_safe_relative` 反斜杠规范化；备份目录秒级碰撞加后缀；UA 改从 config 读版本
+- `check_chapter.py:195`：`SKIP_LINE_RE` 只剔单 `#`——`## 小节标题` 泄漏进正文参与字数/词频统计（可能把 1998 字顶过 2000 下限虚假通过）；改 `#{1,6}\s`
+- `check_chapter.py:222`：`WAKE_OPEN_RE` 含「睡意」——"他压下心中的睡意"被判"睁开眼式开场"假阳性；删除该分支
+- `check_chapter.py` P3 清理：COUNTABLE 排除 U+3000（首行缩进不再注水）、`re.split` maxsplit 关键字化（DeprecationWarning）、`most_common` 先过滤再取 Top8（白名单霸榜漏报）、白名单错字 `話说`→`话说`、chal 口径英文撇号不再判半角引号、短章句长方差实算
+- `script_check.py`：裸「旁白：」死代码——落入 DIALOG 按对白计，旁白上限检查失效（实测占比虚高至 81.6%）；NARR 分支前置。场景头不重置 `tail_is_action` 致尾行告警误报；补重置。另修 HANZI 补 Ext A、场景头中文数字、空台词行 `(.*)`、空文件 exit 2、utf-8-sig、删死代码
+- `fix_said_tags.py`：`--walls` 只切一刀不复测（396 字段落切成 198+198 仍超硬卡线）——改循环拆分；段长改 COUNTABLE 口径（与文字墙硬卡一致）；BOM 往返保持（修复后 `ef bb bf` 不再静默消失）；glob.escape 转义目录名（`书稿[旧]` 不再静默 0 章）
+- `doctor.py`：目录树真源外置后 fallback 退化——SKILL.md 只剩指针行，真源缺失时报"未登记 91 个文件"误报风暴；REQUIRED_FILES 补 `references/目录结构.md`+解析判空；fallback 读取补 errors；package_smoke excluded 对齐 TREE_EXCLUDED_PARTS；--runtime-smoke JSON 保留明细；版本真源改边界正则；parse_skill_tree 标题行约束；import check_refs 失败降级不裸崩
+- `retention_check.py`：读取补 utf-8-sig（BOM 不再泄漏进正文）；目录输入 isfile 防护；COUNTABLE 排除 U+3000；SCENE_WORDS 错码（浞→江）
+- `review_skeleton.py`：`--out` 越界且已存在时 `relative_to` ValueError 裸崩（同函数另一处反而有防护）；补安全 rel；`$schema` 按 out 深度计算；read_bytes 竞态捕获
+- `grep_consistency.py` P3：CHAP_RE 补中文/空格章号口径对齐；D 类「未标注」不再当同一节奏类型；ITEM_SPLIT_RE 去「与/和」误伤物品名
+- Dify 封装：`check_chapter.yaml` 删除非法 `zhihu` 选项（上线即坏）并补齐 6 平台预设；`int(idx)` 未捕获致非数字章号炸 500 改友好错误+≥1 校验；platform/quote 前置白名单；`skill_root` 死键凭据移除（填了不生效比没有更糟）；helper 临时目录改 rmtree 整树清理；路径解析优先级与 MCP 对齐（环境变量优先）；list_validators 验证磁盘存在性
+- MCP/Dify 白名单双侧同步：19 项一致、无死键；`run_skill_tool` args 校验完备；参数注入面（list argv 无 shell）确认安全
+
+### 降级删除
+
+- MCP/Dify 只读白名单移除 `export_assistant_txt.py`（导出工具默认即写盘，与只读契约根本冲突；导出请走本地 CLI）
+- Dify Provider 移除 `skill_root` 凭据项（死键：校验通过但完全不生效；自定义目录请用环境变量 NOVEL_SKILL_ROOT/NOVEL_SKILL_SCRIPTS）
+- `check_chapter.py` COUNTABLE 不再计入 U+3000 全角空格（首行缩进注水），字数口径改为汉字+中文标点（不含全角空格）；SKILL.md「净字数」表述同步澄清
+- chal 引号口径不再把 ASCII 撇号 `'` 判为半角直引号（中英混排 don't/it's 合法存在）
+
+### 验证证据
+
+- 回归：`tools/run_tests.py` 251 测试全绿（修复引发的 3 处签名/语义变化已同步适配测试：scan_rhythm 死参数、build_skeleton out 参数、wont_fix 显式保护）
+- 实跑复现：回忆短语单标记不再触发禁开头⑤（`[✓] 禁开头8条 0 命中`）；快照带头标题不再 KeyError；MCP Server 承受 5 种畸形 JSON 行（batch 数组/字符串/数字/null/非 JSON）全部存活且未知工具规范返回 -32602
+- 自检三件套：doctor（目录树登记 91/91、版本真源、冒烟清单）+ lint_skill + check_refs（398 处引用零悬空）全绿
+- bump_version dry-run→apply：23 点位全命中零错误，自校验门禁如实拦下未填款的版本段落后放行
+
+---
+
 ## v7.46（2026-10-16）：发布链打包契约对齐版
 
 ### 更新

@@ -30,12 +30,39 @@ class CheckChapterTool(Tool):
 
         args: list[str] = []
         idx = tool_parameters.get("chapter_index")
+        chapter_no: int | None = None
         if idx not in (None, "", 0):
-            args += ["--chapter-index", str(int(idx))]
+            # v7.47：int(idx) 未捕获——LLM/工作流传入非数字串（"第一章"）时
+            # ValueError 穿透 _invoke 变成 Dify 无信息量 500；0.5 类小数被
+            # int() 静默截断为 0（章号 0 无意义且关闭开篇闸门推断）
+            try:
+                chapter_no = int(idx)
+            except (TypeError, ValueError):
+                yield self.create_text_message(f"错误：chapter_index 必须是数字，收到 {idx!r}")
+                yield self.create_json_message({"ok": False, "error": "chapter_index 必须是数字"})
+                return
+            if chapter_no < 1:
+                yield self.create_text_message(f"错误：chapter_index 必须 ≥1，收到 {chapter_no}")
+                yield self.create_json_message({"ok": False, "error": "chapter_index 必须 ≥1"})
+                return
+            args += ["--chapter-index", str(chapter_no)]
         platform = str(tool_parameters.get("platform") or "").strip()
+        # v7.47：platform/quote 前置白名单校验——此前原样透传，非法值以 argparse
+        # 错误（退出码 2 + 用法到 stderr）形式呈现；YAML zhihu 选项即因此必失败
+        import config as _skill_config
+        if platform and platform not in _skill_config.PLATFORM_PRESETS:
+            yield self.create_text_message(
+                f"错误：platform 非法（{platform}），可选：{sorted(_skill_config.PLATFORM_PRESETS)}")
+            yield self.create_json_message({"ok": False, "error": "platform 非法"})
+            return
         if platform:
             args += ["--platform", platform]
         quote = str(tool_parameters.get("quote") or "").strip()
+        if quote and quote not in _skill_config.QUOTE_MODES:
+            yield self.create_text_message(
+                f"错误：quote 非法（{quote}），可选：{sorted(_skill_config.QUOTE_MODES)}")
+            yield self.create_json_message({"ok": False, "error": "quote 非法"})
+            return
         if quote:
             args += ["--quote", quote]
 
@@ -58,5 +85,5 @@ class CheckChapterTool(Tool):
             "exit_code": res["exit_code"],
             "report": report,
             "platform": platform or "default",
-            "chapter_index": int(idx) if idx not in (None, "", 0) else None,
+            "chapter_index": chapter_no,
         })

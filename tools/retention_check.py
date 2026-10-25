@@ -19,18 +19,24 @@ try:
 except Exception:
     pass
 
-# 与 check_chapter.py 同口径：汉字+中文标点
+# 与 check_chapter.py 同口径：汉字+中文标点（v7.47：排除 U+3000 全角空格，与 check_chapter 对齐）
 COUNTABLE = re.compile(
     "[\u4e00-\u9fff\u3400-\u4dbf"
-    "\u3000-\u303f"
+    "\u3001-\u303f"
     "\uff00-\uffef"
     "\u2018\u2019\u201c\u201d\u2014\u2026]"
 )
 SPAN_CHAL = re.compile("\u201c([^\u201c\u201d]*)\u201d|\u2018([^\u2018\u2019]*)\u2019")
 ROLE_LINE = re.compile("^[\u4e00-\u9fa5A-Za-z0-9\u00b7]{1,10}\uff08[^\uff09]*\uff09\uff1a|^[\u4e00-\u9fa5A-Za-z0-9\u00b7]{1,10}\uff1a")
 PANEL = re.compile("\u3010[^\u3011]*\u3011|\u300c[^\u300d]*\u300d")
-ONOMATOPOEIA = re.compile("\u7830|\u8f70|\u54d4|\u5566|\u5494|\u55e1|\u6ecb|\u549a|\u5496\u5693|\u8f70\u9686")
-SCENE_WORDS = re.compile("[\u5929\u98ce\u96e8\u96ea\u9633\u5149\u6708\u5149\u591c\u665a\u6e05\u6668\u508d\u665a\u6df1\u591c\u8857\u57ce\u5c71\u6751\u6cbf\u6c5f\u6d77\u96fe]")
+# v7.47：拟声词改汉字字面量——此前全部手写 \uXXXX 且 8/10 写错
+#（砰 U+7830 写成 \u7832 砲、嗒 U+55D2 写成 \u54d4 哔、喇 U+5587 写成 \u5566 啦、
+#  呱 U+5471 写成 \u5494 咔、嗤 U+55E4 写成 \u55e1 嗡、唰 U+5530 写成 \u549a 咚、
+#  咕嘟 U+5495,U+561F 写成 \u5496\u5693 咖嚓、轰隆 U+9686 写成 \u9685 隅），
+# 拟声词开场检测基本失效反误匹配无关字；手写转义层是脆弱层，直接写汉字消灭它
+ONOMATOPOEIA = re.compile("砰|轰|嗒|喇|呱|嗤|滋|唰|咕嘟|轰隆")
+# v7.47：场景词同改汉字字面量（原 \u6d5e=浞，应为 江=U+6C5F）
+SCENE_WORDS = re.compile("[天风雨雪阳光月夜晚清晨深夜街城山村江海雾]")
 TIME_WORDS = re.compile("\u6e05\u6668|\u508d\u665a|\u6df1\u591c|\u51cc\u6668|\u6b21\u65e5|\u7b2c\u4e00\u5929|\u7b2c\u4e8c\u5929|\u534a\u591c|\u65e5\u51fa|\u65e5\u843d|\u4e0a\u5348|\u4e0b\u5348|\u5e74|\u6708\u5e95|\u5f53\u5929|\u90a3\u5929")
 
 W_GRAM = 3          # 与上章重复率/新词率的 n-gram 粒度
@@ -43,9 +49,13 @@ FORMAT_RE = re.compile(r"^\s*(?:>|```|\||---+|===+|\*{3,})")
 
 
 def read_body(path):
-    if not os.path.exists(path):
+    # v7.47：isfile 替代 exists——目录输入时 exists 为 True 而 open() 抛
+    # IsADirectoryError 未捕获（traceback + exit 1，文档只定义 0/2）
+    if not os.path.isfile(path):
         return None
-    raw = open(path, encoding="utf-8", errors="replace").read()
+    # v7.47：utf-8-sig 剥 BOM——此前 BOM 泄漏进正文（TITLE_RE 的 ^\s* 不匹配
+    # \ufeff，标题行计入正文，段数虚增）；check_chapter.py 本就使用 utf-8-sig
+    raw = open(path, encoding="utf-8-sig", errors="replace").read()
     lines = [l.rstrip() for l in raw.splitlines()]
     body_lines = []
     for l in lines:

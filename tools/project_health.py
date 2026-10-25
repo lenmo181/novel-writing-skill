@@ -15,6 +15,7 @@ from pathlib import Path
 from config import SKILL_VERSION
 from continuity_check import check as continuity_check
 from entity_index import build_index
+from fact_ledger import check as fact_ledger_check
 from project_audit import audit as project_audit
 
 try:
@@ -55,10 +56,13 @@ def health(root: Path) -> dict:
     issues: list[dict] = []
     audit = project_audit(root)
     continuity = continuity_check(root)
+    facts = fact_ledger_check(root)
     for item in audit.get("issues", []):
         add_issue(issues, item["level"], item["code"], item["location"], item["message"], "project_audit")
     for item in continuity.get("issues", []):
         add_issue(issues, item["level"], item["code"], item["location"], item["message"], "continuity_check")
+    for item in facts.get("issues", []):
+        add_issue(issues, item["level"], item["code"], item["location"], item["message"], "fact_ledger")
 
     metadata_path = root / "项目元数据.json"
     metadata = {}
@@ -128,6 +132,7 @@ def health(root: Path) -> dict:
         "placeholder_count": placeholder_count,
         "placeholder_files": placeholder_files,
         "review_open_items": review_open,
+        "fact_rows": facts.get("stats", {}).get("row_count", 0),
         "issue_counts": counts,
         "metadata": metadata,
     }

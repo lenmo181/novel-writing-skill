@@ -76,7 +76,9 @@ class TestBumpVersionRules(unittest.TestCase):
         rules = bump_version.build_rules("7.42", "7.43", "2026-10-09", "2026-10-12",
                                          "发布链工程化版", "简介")
         files = {r["file"] for r in rules}
-        for rel in ("tools/config.py", "SKILL.md", "README.md", "versions/CHANGELOG.md"):
+        for rel in ("tools/config.py", "SKILL.md", "README.md", "README.en.md",
+                    "packaging/mcp/server.py", "packaging/mcp/server.json",
+                    "versions/CHANGELOG.md"):
             self.assertIn(rel, files, f"改版点位漏登记：{rel}")
 
     def test_every_rule_has_expect_or_is_whitelisted(self):

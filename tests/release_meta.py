@@ -17,6 +17,8 @@
 """
 
 from datetime import date
+import json
+import re
 
 VERSION_RE = r"^\d+\.\d+$"
 _ISO_DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
@@ -46,3 +48,13 @@ def assert_release_consistent(tc, root, version, release_date):
     tc.assertIn(
         f"## v{version}（{release_date}）", changelog,
         "CHANGELOG.md 缺少当前版本条目或日期不一致（四段式：更新/修复/降级删除/验证证据）")
+
+    # MCP Registry 清单和英文发布物料也必须跟随同一版本真源；此前它们
+    # 长期停在 v7.46，中文四真源全绿却仍会发布旧版本元数据。
+    readme_en = _read(root, "README.en.md")
+    tc.assertIn(f"Version: v{version}** ({release_date})", readme_en)
+    server_py = _read(root, "packaging/mcp/server.py")
+    tc.assertRegex(server_py, rf'SERVER_VERSION\s*=\s*["\']{re.escape(version)}\.0["\']')
+    server_meta = json.loads(_read(root, "packaging/mcp/server.json"))
+    tc.assertEqual(server_meta.get("version"), f"{version}.0")
+    tc.assertEqual(server_meta.get("packages", [{}])[0].get("version"), f"{version}.0")

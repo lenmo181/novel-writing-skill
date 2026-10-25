@@ -26,7 +26,7 @@ def verify(zip_path, version):
             base = PurePosixPath(name).name
             if (not parts or parts[0] != SKILL_NAME or ".." in parts or "\\" in name
                     or any(part.startswith(".") or part == "__pycache__" for part in parts)
-                    or name.endswith((".pyc", ".pyo"))):
+                    or name.endswith((".pyc", ".pyo", ".bak", ".tmp"))):  # v7.47：原子写安全网产物
                 raise ValueError(f"非法 ZIP 条目：{name}")
             if base and "." not in base:
                 raise ValueError(f"非法 ZIP 条目（无扩展名，SkillHub 会拒绝）：{name}")

@@ -28,6 +28,9 @@ EXCLUDE_DIRS = {".git", ".workbuddy", ".v2c", ".video_agent", "__pycache__",
                 "packaging"}
 EXCLUDE_FILES = {".gitignore", "Thumbs.db", ".DS_Store",
                  ".editorconfig", ".gitattributes"}
+# v7.47：原子写安全网产物——bump_version/full_review/repair_runner 的
+# tmp+os.replace+.bak 策略会产生 *.bak/*.tmp，不进上架包（与 doctor 豁免同源）
+EXCLUDE_SUFFIXES = (".bak", ".tmp")
 EXCLUDE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 TEXT_EXT = {".md", ".py", ".txt", ".json", ".yaml", ".yml", ".sh", ".html",
             ".js", ".ts", ".css", ".csv", ".bat", ".ps1"}
@@ -80,7 +83,9 @@ for dp, dns, fns in os.walk(ROOT):
         dns[:] = [d for d in dns if d not in EXCLUDE_DIRS]
     for fn in fns:
         ext = os.path.splitext(fn)[1].lower()
-        if fn in EXCLUDE_FILES or fn.endswith(".pyc") or ext in EXCLUDE_EXTENSIONS:
+        if (fn in EXCLUDE_FILES or fn.startswith(".wbapp_") or fn.endswith(".genie")
+                or fn.endswith(".pyc") or ext in EXCLUDE_EXTENSIONS
+                or fn.endswith(EXCLUDE_SUFFIXES)):
             continue
         if ext == "":
             # SkillHub 服务端拒绝无扩展名文件（400 不允许的文件类型，如 LICENSE/NOTICE）；
@@ -133,7 +138,8 @@ for dp, _, fns in os.walk(STAGE):
         elif fn == "sync_skill.ps1":
             t = t.replace('"tools"', '"scripts"')
         if t != o:
-            Path(p).write_text(t, encoding="utf-8", newline="")
+            with Path(p).open("w", encoding="utf-8", newline="") as handle:
+                handle.write(t)
             changed += 1
 log("[3/6] 文本脱敏/改写：%d/%d 个文本文件被修改" % (changed, total))
 
@@ -153,7 +159,8 @@ for line in FM_INSERT.splitlines():
     if not re.search(r"(?m)^" + re.escape(key) + r":", fm):
         fm = fm.rstrip() + "\n" + line
 t = "---\n" + fm + "\n---\n" + t[m.end():]
-Path(skill_md).write_text(t, encoding="utf-8", newline="")
+with Path(skill_md).open("w", encoding="utf-8", newline="") as handle:
+    handle.write(t)
 log("[4/6] frontmatter 已统一平台名称、版本和缺失字段")
 
 # ---------- 5. 残留体检 ----------

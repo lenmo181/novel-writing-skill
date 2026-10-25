@@ -3,6 +3,9 @@
 
 聚焦“文件之间对不上”的机械问题：章节标题、时间线顺序、伏笔日期、
 角色首末出场章和单章回顾覆盖率。语义冲突仍交给作者或审校流程裁定。
+
+v7.49：补齐期待线悬空阈值常量（原引用点存在但未定义，触发 NameError 崩溃），
+并接入伏笔到期/超期/近期待回收三层提醒（对标 MuMuAINovel）。
 """
 import argparse
 import json
@@ -10,7 +13,9 @@ import re
 import sys
 from pathlib import Path
 
-from config import SKILL_VERSION
+from config import (EXPECTATION_STALE_CHAPTERS, FORESHADOW_DUE_OFFSET,
+                    FORESHADOW_OVERDUE_OFFSET, FORESHADOW_STATUSES,
+                    SKILL_VERSION)
 from project_audit import chapter_files, add_issue
 
 try:
@@ -82,7 +87,17 @@ def check_roles(root, issues):
     flush()
 
 
-def check_foreshadows(root, issues):
+def check_foreshadows(root, issues, latest_chapter=0):
+    """伏笔追踪表核验 + 到期三层提醒（v7.49）。
+
+    表格格式（mind/伏笔追踪表.md）：
+        | 编号 | 伏笔内容 | 埋设章 | 预计回收章 | Tier | 状态 |
+
+    三层提醒（对标 MuMuAINovel 的「必须回收 / 已超期 / 近期待回收」）：
+      · 必须回收：预计回收章 ≤ 当前最新章，状态仍未回收 → medium
+      · 已超期：预计回收章 ≤ 当前最新章 - FORESHADOW_OVERDUE_OFFSET → high
+      · 近期待回收：预计回收章 ≤ 当前最新章 + FORESHADOW_DUE_OFFSET → low
+    """
     path = root / "mind" / "伏笔追踪表.md"
     if not path.is_file():
         return
@@ -97,9 +112,31 @@ def check_foreshadows(root, issues):
         if planted and planned and int(planned.group(1)) < int(planted.group(1)):
             add_issue(issues, "medium", "FORESHADOW_ORDER", f"mind/伏笔追踪表.md:{index}",
                       f"伏笔“{cells[0]}”预计回收章早于埋设章")
-        if len(cells) >= 6 and cells[5] not in ("未回收", "已回收", "已废弃", "待定", "-"):
+        status = cells[5] if len(cells) >= 6 else ""
+        if status and status not in FORESHADOW_STATUSES:
             add_issue(issues, "low", "FORESHADOW_STATUS", f"mind/伏笔追踪表.md:{index}",
-                      f"伏笔状态不在白名单：{cells[5]}")
+                      f"伏笔状态不在白名单：{status}")
+        # ── v7.49 到期三层提醒 ──
+        # 只对「未回收 / 部分回收」且已填了预计回收章的条目判定；
+        # 已回收 / 已废弃 / 待定 不参与到期提醒（否则会对着已废弃伏笔催债）。
+        if not planned or status in ("已回收", "已废弃", "待定", "-", ""):
+            continue
+        if status not in ("未回收", "部分回收"):
+            continue
+        due = int(planned.group(1))
+        if latest_chapter <= 0:
+            continue
+        if due <= latest_chapter - FORESHADOW_OVERDUE_OFFSET:
+            add_issue(issues, "high", "FORESHADOW_OVERDUE", f"mind/伏笔追踪表.md:{index}",
+                      f"伏笔“{cells[0]}”预计第{due}章回收，已超期 "
+                      f"{latest_chapter - due} 章仍未回收——立即兑现或改期（改期要留理由）")
+        elif due <= latest_chapter:
+            add_issue(issues, "medium", "FORESHADOW_DUE", f"mind/伏笔追踪表.md:{index}",
+                      f"伏笔“{cells[0]}”预计第{due}章回收，已到期仍未回收——本章内兑现或显式改期")
+        elif due <= latest_chapter + FORESHADOW_DUE_OFFSET:
+            add_issue(issues, "low", "FORESHADOW_DUE_SOON", f"mind/伏笔追踪表.md:{index}",
+                      f"伏笔“{cells[0]}”预计第{due}章回收（当前第{latest_chapter}章）——"
+                      f"提前准备，别忘了")
 
 
 def check_toc_titles(root, chapters, issues):
@@ -181,9 +218,10 @@ def check_expectations(root, chapters, issues):
 def check(root: Path):
     issues = []
     chapters = chapter_files(root)
+    latest_chapter = max((row["num"] for row in chapters), default=0)
     check_timeline(root, issues)
     check_roles(root, issues)
-    check_foreshadows(root, issues)
+    check_foreshadows(root, issues, latest_chapter)
     check_toc_titles(root, chapters, issues)
     check_reviews(root, chapters, issues)
     check_expectations(root, chapters, issues)
@@ -191,6 +229,7 @@ def check(root: Path):
         "version": SKILL_VERSION,
         "root": str(root),
         "chapter_count": len(chapters),
+        "latest_chapter": latest_chapter,
         "issues": issues,
     }
 

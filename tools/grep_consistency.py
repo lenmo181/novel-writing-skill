@@ -74,7 +74,10 @@ def parse_snapshot(path):
             continue
         fm = FIELD_RE.match(s)
         if fm:
-            chars[cur][fm.group(1)] = fm.group(2).strip()
+            # v7.47：setdefault 兜底——标题行「角色状态快照/角色名」被排除出 chars 但
+            # 仍会设为 cur，其下字段行此前直接 chars[cur][...] 抛 KeyError 裸崩
+            # （合理快照文件即崩，且吞掉已算完的 D 类结果、违背"退出码恒 0"文档语义）
+            chars.setdefault(cur, {"_line": lineno})[fm.group(1)] = fm.group(2).strip()
     return chars
 
 

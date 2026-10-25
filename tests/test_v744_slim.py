@@ -86,11 +86,17 @@ class TestReviewSkeleton(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_project(Path(tmp))
             path = root / "书稿" / "第001章_测试.md"
-            data = review_skeleton.build_skeleton(root, 1, path, "revise")
+            data = review_skeleton.build_skeleton(root, 1, path, "revise", path.with_suffix(".审校.json"))
             self.assertEqual(sorted(int(k) for k in data["checks"]), list(range(14, 31)))
             for item in data["checks"].values():
                 self.assertEqual(item["status"], "revise")
-                self.assertTrue(item["evidence"].strip())
+                # v7.49：evidence 改为对象形态 {text, quote, offset}——text 是描述，
+                # quote/offset 是可验证的引文锚点（服务端逐字比对正文）
+                evidence = item["evidence"]
+                self.assertIsInstance(evidence, dict)
+                self.assertTrue(evidence["text"].strip())
+                self.assertEqual(evidence["quote"], "")
+                self.assertIsNone(evidence["offset"])
             self.assertEqual(data["chapter"], 1)
             self.assertEqual(len(data["chapter_sha256"]), 64)
             # 默认 revise 的骨架必须被交付 Gate 拦下

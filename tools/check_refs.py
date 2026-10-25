@@ -28,14 +28,14 @@ except Exception:
     pass
 
 # 技能包内可校验的引用前缀
+# （项目侧运行时路径与外部能力——mind/、书稿/、大纲/、设定/、封面/、拆文库/、
+#   .story-review/、.zcode/、workspace/、node_modules/——均不以这些前缀开头，
+#   已被下面 CHECK_PREFIXES 先行排除，无需单独的跳过名单）
 CHECK_PREFIXES = ("references/", "templates/", "tools/", "versions/")
-
-# 项目侧运行时路径 / 外部能力：跳过不校验
-SKIP_PREFIXES = ("mind/", "书稿/", "大纲/", "设定/", "封面/", "拆文库/",
-                 ".story-review/", ".zcode/", "workspace/", "node_modules/")
 
 # 被引用的候选路径：以 .md / .py 结尾的相对路径或 SKILL.md
 REF_RE = re.compile(
+    r"(?<![\w./-])"  # v7.47：加左边界断言，避免 mytools/config.py、URL 里的 tools/x.py 等子串被当成包内引用
     r"(?:SKILL\.md"
     r"|(?:references|templates|tools|versions)/[^\s`\"'（）()\[\]【】《》<>、，。；：!?！？]+?\.(?:md|py)"
     r")")
@@ -59,10 +59,6 @@ def strip_trailing(cand):
     return cand.rstrip("。，、；：!?！？*_`\"'）)】》>.")
 
 
-def is_skipped(rel):
-    return rel.startswith(SKIP_PREFIXES)
-
-
 def check(root):
     root = os.path.abspath(root)
     if not os.path.isdir(root):
@@ -78,7 +74,10 @@ def check(root):
             for lineno, line in enumerate(f, 1):
                 for m in REF_RE.finditer(line):
                     cand = strip_trailing(m.group(0))
-                    if not cand or is_skipped(cand):
+                    if not cand:
+                        continue
+                    # v7.47：候选路径含通配符（* 或 ?）时是写法示例而非真实路径，跳过避免误报悬空
+                    if "*" in cand or "?" in cand:
                         continue
                     if not (cand == "SKILL.md" or cand.startswith(CHECK_PREFIXES)):
                         continue

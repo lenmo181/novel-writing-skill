@@ -13,13 +13,10 @@
     - 默认 status=revise、evidence 为「待补：<项名>」，因此**骨架绝不会误通过 Gate**；
     - 已存在同名文件时拒绝覆盖，`--force` 才覆盖。
 
-用法
-----
-    python tools/review_skeleton.py <项目根> <章号>
-    python tools/review_skeleton.py <项目根> 12 --out mind/审校/第012章审校.json
-    python tools/review_skeleton.py <项目根> 12 --force
-
-退出码：0=已生成 / 1=已存在或内容缺失 / 2=参数或路径错误
+v7.49：evidence 改为对象形态 `{text, quote, offset}`——`quote` 是正文原文摘录、
+`offset` 是其在正文中的字符偏移，由 chapter_readiness.py 服务端逐字比对。
+新增 `--find-quote` 子命令：给定引文片段，反查它在正文中的字符偏移，
+让填证据的人不必手工数位置（数错即 Gate 失败）。
 """
 from __future__ import annotations
 
@@ -68,21 +65,49 @@ def resolve_chapter(root: Path, chapter: int):
     return None
 
 
-def build_skeleton(root: Path, chapter: int, chapter_file: Path, status: str) -> dict:
+def read_chapter_text(path: Path) -> str:
+    """读章节原文（三级编码回退），用于引文锚点定位与逐字比对。"""
+    for enc in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return path.read_text(encoding=enc)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return ""
+
+
+def build_skeleton(root: Path, chapter: int, chapter_file: Path, status: str, out: Path) -> dict:
     names = load_check_names()
-    digest = hashlib.sha256(chapter_file.read_bytes()).hexdigest()
+    # v7.47：read_bytes 竞态捕获——resolve 成功到读字节之间文件被删/锁 →
+    # 此前 OSError 裸 traceback；现由 main 转 exit 2 可读错误
+    try:
+        digest = hashlib.sha256(chapter_file.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise OSError(f"读取章节文件失败：{exc}") from exc
     checks = {}
     for num in SEMANTIC_CHECKS:
         label = names.get(num, f"第{num}项")
         checks[str(num)] = {
             "status": status,
-            "evidence": f"待补：{label}——填写本章的具体证据（引用原文位置，不写结论形容词）",
+            # v7.49：对象形态 evidence——text 是描述，quote/offset 是可验证锚点。
+            # quote 与 offset 留空表示「尚未定位」，Gate 会判该项不可验证（不算通过）。
+            "evidence": {
+                "text": f"待补：{label}——填写本章的具体证据（引用原文位置，不写结论形容词）",
+                "quote": "",
+                "offset": None,
+            },
             "location": "",
             "confidence": 0.0,
             "note": "骨架生成项，未审校",
         }
+    # v7.47：$schema 按 out 相对技能根的深度计算——此前硬编码 "../schemas/…"，
+    # 对默认位置 mind/审校/（深度2）实际指向 mind/schemas/（不存在）；
+    # 自定义 --out 到别处后同样断裂（运行时无人校验，属潜伏坑）
+    try:
+        depth = len(out.resolve().relative_to(ROOT).parts) - 1
+    except ValueError:
+        depth = 2
     return {
-        "$schema": "../schemas/chapter_semantic_review.schema.json",
+        "$schema": "../" * depth + "schemas/chapter_semantic_review.schema.json",
         "version": SKILL_VERSION,
         "chapter": chapter,
         "chapter_sha256": digest,
@@ -90,6 +115,22 @@ def build_skeleton(root: Path, chapter: int, chapter_file: Path, status: str) ->
         "source": str(chapter_file.relative_to(root)).replace("\\", "/"),
         "checks": checks,
     }
+
+
+def find_quote(text: str, quote: str) -> list[int]:
+    """返回引文在正文中出现的全部字符偏移（重叠匹配也算）。"""
+    offsets: list[int] = []
+    if not quote:
+        return offsets
+    start = 0
+    while True:
+        idx = text.find(quote, start)
+        if idx < 0:
+            break
+        offsets.append(idx)
+        start = idx + 1
+    return offsets
+
 
 
 def main(argv=None) -> int:
@@ -105,6 +146,8 @@ def main(argv=None) -> int:
                         choices=["revise", "blocked", "warn", "pass", "weak"],
                         help="骨架初始状态；默认 revise，确保骨架不会误通过交付 Gate")
     parser.add_argument("--force", action="store_true", help="覆盖已存在的审校记录")
+    parser.add_argument("--find-quote", default="",
+                        help="反查引文片段在正文中的字符偏移；填入 evidence.quote/offset 用（不生成骨架）")
     args = parser.parse_args(argv)
 
     root = Path(args.project).expanduser().resolve()
@@ -117,18 +160,47 @@ def main(argv=None) -> int:
         print(f"[✗] 未找到第{args.chapter}章正文（书稿/第XXX章_章节名.md）")
         return 2
 
+    # ── v7.49：引文锚点反查模式（不落盘，只打印）──
+    if args.find_quote:
+        text = read_chapter_text(chapter_file)
+        offsets = find_quote(text, args.find_quote)
+        if not offsets:
+            print(f"[✗] 引文未在第{args.chapter}章正文中找到（逐字比对，标点/空白也要一致）")
+            print(f"    章节：{chapter_file.relative_to(root)}")
+            print("    提示：确认引文与正文逐字一致（含标点与空格）；可先用 grep 定位再复制原文。")
+            return 1
+        print(f"[✓] 引文在第{args.chapter}章正文中出现 {len(offsets)} 次")
+        for idx, offset in enumerate(offsets, 1):
+            print(f"    #{idx} offset={offset}  长度={len(args.find_quote)}")
+            print(f"       可填：\"quote\": {args.find_quote!r}, \"offset\": {offset}")
+        return 0
+
     out = Path(args.out).expanduser() if args.out else root / "mind" / "审校" / f"第{args.chapter:03d}章审校.json"
     if not out.is_absolute():
         out = root / out
     if out.exists() and not args.force:
-        print(f"[✗] 已存在 {out.relative_to(root)}；加 --force 覆盖，或先备份")
+        # v7.47：安全 relative_to——out 指向项目外且已存在时，此前
+        # out.relative_to(root) 抛 ValueError traceback 而非设计的退出码 1
+        # （同函数 131 行反而有 is_relative_to 防护，此处遗漏）
+        try:
+            rel = out.relative_to(root)
+        except ValueError:
+            rel = out
+        print(f"[✗] 已存在 {rel}；加 --force 覆盖，或先备份")
         return 1
 
-    skeleton = build_skeleton(root, args.chapter, chapter_file, args.status)
+    try:
+        skeleton = build_skeleton(root, args.chapter, chapter_file, args.status, out)
+    except OSError as exc:
+        print(f"[✗] {exc}")
+        return 2
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(skeleton, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    rel = out.relative_to(root) if out.is_relative_to(root) else out
+    try:
+        rel = out.relative_to(root)
+    except ValueError:
+        rel = out
     print(f"[✓] 骨架已生成：{rel}")
     print(f"    章：第{args.chapter}章（{skeleton['source']}）")
     print(f"    sha256：{skeleton['chapter_sha256'][:16]}…")
@@ -137,6 +209,8 @@ def main(argv=None) -> int:
         print("    提示：默认状态不会通过交付 Gate——逐项填完 evidence 后再跑 chapter_readiness.py")
     if args.status == "weak":
         print("    提示：weak 档表示未经 AI 语义复核，Gate 不卡死但不可作为正式交付结论")
+    print("    提示：evidence.quote/offset 需按正文原文填写——"
+          "用 --find-quote \"引文\" 反查偏移；引文与正文不符会被 Gate 判失败")
     return 0
 
 

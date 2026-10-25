@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""全文审稿修复队列状态执行层（v7.46）。
+"""全文审稿修复队列状态执行层（v7.50）。
 
 只管理 mind/全文审稿队列.json 的状态，不直接修改正文、档案或大纲。
 状态：open / reopened / fixed / auto_fixed / wont_fix。
@@ -87,7 +87,7 @@ def set_status(root: Path, issue_id: str, target: str):
         "wont_fix": {"open", "reopened", "fixed", "auto_fixed"},
         "reopened": {"fixed", "auto_fixed", "wont_fix"},
     }
-    if target != "open" and current == target:
+    if current == target:  # v7.47：去掉 target != "open" 特例，open→open 与其它目标一样幂等返回"已是 open"rc=0
         print(f"[i] {issue_id} 已是 {target}")
         return 0
     if target == "open":

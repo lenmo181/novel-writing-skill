@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""技能包统一自检（v7.46）。
+"""技能包统一自检（v7.50）。
 
 用途：在安装后或出现“技能找不到/闪退/脚本报错/文档不一致”时，
 用一次命令检查包结构、版本真源、Python 语法和技能包内相对引用。
@@ -20,7 +20,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import check_refs
+try:
+    import check_refs
+except ImportError:  # v7.47：python -m tools.doctor 方式调用时 sys.path[0] 不是 tools/，
+    check_refs = None  # 给 audit 里对应检查降级提示，而不是裸崩
 from config import RELEASE_DATE, SKILL_VERSION
 
 
@@ -39,7 +42,9 @@ REQUIRED_FILES = (
     "schemas/chapter_semantic_review.schema.json",
     "references/快速开始.md",
     "references/工具选择.md",
+    "references/目录结构.md",
     "references/研究来源.md",
+    "references/同类小说研究.md",
     "references/常见问题.md",
     "references/操作范例.md",
     "references/模式操作卡.md",
@@ -102,6 +107,8 @@ RUNTIME_TOOLS = (
     "run_tests.py",
     "export_assistant_txt.py",
     "research_audit.py",
+    "fact_ledger.py",
+    "similar_novels.py",
 )
 
 # 无 CLI 入口的纯模块：被 import 使用，不以脚本方式运行，不进冒烟清单
@@ -165,7 +172,10 @@ def smoke_registry_report(root: Path) -> dict:
 
 def package_smoke(root: Path, timeout: float = 15.0) -> dict:
     """在临时目录完成一次 ZIP 打包、解压和安装副本自检。"""
-    excluded = {".git", ".workbuddy", ".playwright-cli", ".v2c", ".video_agent", "dist", "out", "__pycache__"}
+    # v7.47：与 TREE_EXCLUDED_PARTS 对齐——此前 excluded 只有 8 项（缺 tests/
+    # packaging/assets），冒烟 zip 含这些目录，与真实上架包（build_market_zip
+    # 排除）不一致：冒烟通过 ≠ 上架包可过
+    excluded = set(TREE_EXCLUDED_PARTS)
     with tempfile.TemporaryDirectory(prefix="novel_skill_package_") as temp:
         temp_root = Path(temp)
         archive = temp_root / "skill.zip"
@@ -224,6 +234,10 @@ def _tree_excluded(rel_posix: str) -> bool:
         return True
     if parts[-1].startswith("."):
         return True
+    # v7.47：.bak/.tmp 后缀豁免——bump_version/full_review/repair_runner 的
+    # 原子写安全网会产生 *.bak（如 SKILL.md.bak），它们既不该登记也不该进包
+    if parts[-1].endswith((".bak", ".tmp")):
+        return True
     return rel_posix in TREE_EXCLUDED_FILES
 
 
@@ -232,10 +246,12 @@ def load_tree_doc(root: Path) -> str:
 
     目录树已随主文件瘦身从 SKILL.md 外置，但旧包/旧安装仍把树写在 SKILL.md 里，
     这里双向兼容，避免升级期误报「未登记」。
+    v7.47：外部真源读取统一 errors="replace"——此前 strict 解码，同步盘/编辑器
+    事故导致编码损坏时 UnicodeDecodeError 逃出 audit() 令 doctor 裸崩。
     """
     external = root / "references" / "目录结构.md"
     if external.is_file():
-        return external.read_text(encoding="utf-8")
+        return external.read_text(encoding="utf-8", errors="replace")
     return (root / "SKILL.md").read_text(encoding="utf-8", errors="replace")
 
 
@@ -253,7 +269,9 @@ def parse_skill_tree(skill_text: str) -> tuple[set, set]:
     for line in skill_text.splitlines():
         stripped = line.strip()
         if not in_section:
-            if "技能目录结构" in line:
+            # v7.47：标题行约束——此前 `"技能目录结构" in line` 无约束，正文任何
+            # 提及（如"详见技能目录结构"）都会让解析从该处找第一个围栏，错块当树
+            if re.match(r"^#+\s.*技能目录结构", stripped):
                 in_section = True
             continue
         if stripped.startswith("```"):
@@ -287,6 +305,16 @@ def parse_skill_tree(skill_text: str) -> tuple[set, set]:
 def tree_registry_report(root: Path, skill_text: str) -> dict:
     """比对目录树登记与磁盘实际文件：防「手册已写、认知树里没有」的自指盲区。"""
     registered, exempt = parse_skill_tree(skill_text)
+    # v7.47：解析为空时明确报真源缺失——此前 SKILL.md 该节只剩指针行（树真源
+    # 已外置），fallback 解析 registered 为空 → "未登记 91 个文件"的误报风暴，
+    # 而真源缺失本身反而不被提示（REQUIRED_FILES 现已含 references/目录结构.md）
+    if not registered:
+        return _check(
+            "目录树登记完整性",
+            False,
+            "未找到目录树（references/目录结构.md 缺失且 SKILL.md 无内嵌树）",
+            "恢复 references/目录结构.md（目录树登记真源），或在 SKILL.md 内嵌完整树",
+        )
     on_disk: set = set()
     for path in root.rglob("*"):
         rel = path.relative_to(root)
@@ -353,7 +381,10 @@ def audit(root: Path = ROOT) -> dict:
     except (OSError, UnicodeError) as exc:
         checks.append(_check("文档可读性", False, str(exc), "确认文件编码为 UTF-8 且目录可读"))
     else:
-        version_ok = f"v{SKILL_VERSION}" in skill_text and f"v{SKILL_VERSION}" in readme_text
+        # v7.47：边界正则——此前子串包含，SKILL.md 只写 v7.460/v7.46.1 时
+        # 检查仍通过，版本漂移被掩盖
+        version_ok = (re.search(rf"(?<![\d.])v{re.escape(SKILL_VERSION)}(?![\d.])", skill_text)
+                      and re.search(rf"(?<![\d.])v{re.escape(SKILL_VERSION)}(?![\d.])", readme_text))
         date_ok = RELEASE_DATE in skill_text and RELEASE_DATE in readme_text
         checks.append(_check(
             "版本真源",
@@ -378,20 +409,29 @@ def audit(root: Path = ROOT) -> dict:
     ))
 
     ref_output = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(ref_output):
-            ref_code = check_refs.check(str(root))
-        refs_ok = ref_code == 0
-        ref_detail = "技能包内引用完整" if refs_ok else "存在悬空引用"
-    except Exception as exc:  # pragma: no cover - 仅用于故障兜底
-        refs_ok = False
-        ref_detail = f"引用检查异常：{exc}"
-    checks.append(_check(
-        "相对引用",
-        refs_ok,
-        ref_detail,
-        "运行 python tools/check_refs.py 查看具体悬空路径" if not refs_ok else "",
-    ))
+    if check_refs is None:
+        # v7.47：python -m tools.doctor 方式调用时 import 失败，降级为提示而非裸崩
+        checks.append(_check(
+            "相对引用",
+            True,
+            "已跳过（check_refs 未导入：请以 script 方式运行 python tools/doctor.py）",
+            "",
+        ))
+    else:
+        try:
+            with contextlib.redirect_stdout(ref_output):
+                ref_code = check_refs.check(str(root))
+            refs_ok = ref_code == 0
+            ref_detail = "技能包内引用完整" if refs_ok else "存在悬空引用"
+        except Exception as exc:  # pragma: no cover - 仅用于故障兜底
+            refs_ok = False
+            ref_detail = f"引用检查异常：{exc}"
+        checks.append(_check(
+            "相对引用",
+            refs_ok,
+            ref_detail,
+            "运行 python tools/check_refs.py 查看具体悬空路径" if not refs_ok else "",
+        ))
 
     if skill_text:
         checks.append(tree_registry_report(root, load_tree_doc(root)))
@@ -432,6 +472,8 @@ def main(argv=None) -> int:
                 f"{sum(item['ok'] for item in smoke)}/{len(smoke)} 个工具入口通过" if passed else "存在工具入口未通过",
                 "逐项运行失败工具的 --help 并修复依赖或参数入口" if not passed else "",
             ))
+            # v7.47：JSON 模式保留逐工具明细——此前被丢弃，看不到哪个工具失败
+            report["runtime_smoke"] = smoke
         if args.package_smoke:
             packed = package_smoke(Path(args.root).expanduser().resolve())
             report["checks"].append(_check(

@@ -29,7 +29,7 @@ EXCLUDE_DIRS = {
     ".vscode", ".playwright-cli", ".github", "dist", "out", "tests",
     "packaging", ".pytest_cache", "build_pkg", "_skill",
 }
-EXCLUDE_EXT = {".pyc", ".pyo"}
+EXCLUDE_EXT = {".pyc", ".pyo", ".bak", ".tmp"}  # v7.47：原子写安全网产物不进 bundle
 
 
 def copy_skill(dest: Path) -> int:
@@ -50,6 +50,13 @@ def copy_skill(dest: Path) -> int:
 
 
 def main() -> int:
+    # 中文 Windows 的 cp936 无法编码自检输出中的 ✓，打包器不能因终端编码
+    # 在收尾阶段失败；与其它发布入口统一 UTF-8 输出口径。
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="把技能包复制进 Dify 插件的 _skill/")
     ap.add_argument("--clean", action="store_true", help="删除 _skill/ 后退出")
     args = ap.parse_args()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""评测场景矩阵校验器（v7.46）。
+"""评测场景矩阵校验器（v7.50）。
 
 只校验本地评测矩阵是否完整、可解析、与主技能入口一致；
 它不伪造 SkillHub 分数，也不替代真实模型行为评测。
@@ -18,7 +18,7 @@ from config import SKILL_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_REL = Path("references") / "评测场景.md"
-EXPECTED_IDS = [f"EV-{index:02d}" for index in range(1, 17)]
+EXPECTED_IDS = [f"EV-{index:02d}" for index in range(1, 18)]
 ID_RE = re.compile(r"^EV-\d{2}$")
 
 

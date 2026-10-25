@@ -60,7 +60,7 @@ EXCLUDE_DIRS = {
     ".vscode", ".playwright-cli", ".github", "dist", "out", "tests",
     "packaging", ".pytest_cache", "build_pkg",
 }
-EXCLUDE_SUFFIX = {".pyc", ".pyo"}
+EXCLUDE_SUFFIX = {".pyc", ".pyo", ".bak", ".tmp"}  # v7.47：原子写安全网产物不进 wheel
 
 
 # --------------------------------------------------------------------------- #
@@ -99,7 +99,8 @@ def copy_skill(dest: Path) -> list[Path]:
 
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
 
 
 # --------------------------------------------------------------------------- #
@@ -167,7 +168,7 @@ def iter_files(root: Path) -> list[Path]:
     for r, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         for f in files:
-            if Path(f).suffix in EXCLUDE_SUFFIX:
+            if Path(f).suffix in EXCLUDE_SUFFIX or f.endswith((".bak", ".tmp")):
                 continue
             out.append(Path(r) / f)
     return sorted(out)
@@ -330,6 +331,13 @@ def self_check(wheel: Path) -> bool:
 
 
 def main() -> int:
+    # 中文 Windows 默认 cp936 无法编码 ✓/✅；构建器是用户直接运行的入口，
+    # 必须像运行时 CLI 一样把终端输出统一为 UTF-8，避免 wheel 已构建却在
+    # 最后一行打印时崩溃。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     version = read_version()
     print(f"构建 {PKG_NAME} v{version}")
     wheel, n_skill = build_wheel(version)

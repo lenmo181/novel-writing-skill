@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""章节交付 Gate（v7.46）：默认工程 Gate + 可验证语义 Gate。"""
+"""章节交付 Gate（v7.50）：默认工程 Gate + 可验证语义 Gate。
+
+v7.49：语义 Gate 增加「证据引文不可篡改校验」——对标 AI_NovelGenerator 的
+CHAPTER_CHECK_QUOTE_MISMATCH。此前 evidence 只校验「非空字符串」，AI 可以
+写一段根本不存在的「原文摘录」照样通过；现在 evidence 支持
+{text, quote, offset} 结构，服务端按 offset 逐字比对正文，quote 与正文不符
+即判失败（引文锚点不可伪造）。
+"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -15,6 +22,39 @@ SEMANTIC_DIR = Path("mind") / "审校"
 SEMANTIC_CHECKS = list(range(14, 31))
 # v7.44：weak = 未经 AI 语义复核的机械弱证据档
 VALID_SEMANTIC_STATUS = {"pass", "warn", "revise", "blocked", "weak"}
+
+
+def read_chapter_text(path):
+    """读章节正文用于引文比对；沿用三级编码回退，与 canonical_parser 同源口径。"""
+    for enc in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return path.read_text(encoding=enc)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return ""
+
+
+def verify_quote(chapter_text, quote, offset):
+    """校验引文锚点：正文[offset:offset+len(quote)] 必须逐字等于 quote。
+
+    返回 (ok, detail)。offset 越界、切片不等于 quote 均判失败。
+    契约：offset 以**字符**为单位（不是字节），与 Python 切片一致。
+    """
+    if not isinstance(quote, str) or not quote:
+        return False, "quote 为空"
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        return False, "offset 必须是整数"
+    if offset < 0:
+        return False, "offset 为负数"
+    if offset + len(quote) > len(chapter_text):
+        return False, (f"offset={offset} + len(quote)={len(quote)} 超出正文长度 "
+                       f"{len(chapter_text)}")
+    actual = chapter_text[offset:offset + len(quote)]
+    if actual != quote:
+        return False, (f"引文与正文不符：offset={offset} 处正文为 "
+                       f"「{actual[:24]}」，记录写的是「{quote[:24]}」")
+    return True, f"引文锚点校验通过（offset={offset}，{len(quote)} 字）"
+
 
 def run_gate(name, command, cwd):
     try:
@@ -60,10 +100,13 @@ def semantic_gate(root, chapter):
     checks = data.get("checks")
     if not isinstance(checks, dict):
         return {"name": "30项语义证据", "ok": False, "exit_code": 2, "tail": ["checks 必须是对象，覆盖校验14-30"]}
+    chapter_text = read_chapter_text(chapter_file)
     missing = []
     invalid = []
     failed = []
     weak = []
+    quote_mismatch = []
+    quote_checked = 0
     for number in SEMANTIC_CHECKS:
         item = checks.get(str(number), checks.get(number))
         if not isinstance(item, dict):
@@ -79,21 +122,47 @@ def semantic_gate(root, chapter):
         if isinstance(status, str) and status == "weak":
             weak.append(number)
         evidence = item.get("evidence")
-        if not isinstance(evidence, str) or not evidence.strip():
+        # ── v7.49 引文不可篡改校验 ──
+        # evidence 允许两种形态：
+        #   1) 纯字符串（旧格式，只有描述性证据）
+        #   2) 对象 {"text": 描述, "quote": 原文摘录, "offset": 字符偏移}
+        # 形态 2 走服务端逐字比对：quote 与正文不符即失败，AI 无法编造引文。
+        if isinstance(evidence, dict):
+            text_value = evidence.get("text")
+            if not isinstance(text_value, str) or not text_value.strip():
+                invalid.append(f"{number}:evidence.text")
+            quote = evidence.get("quote")
+            offset = evidence.get("offset")
+            if quote is None and offset is None:
+                # 只给了 text 没给锚点：不算失败，但本项不具备可验证性
+                invalid.append(f"{number}:evidence.quote")
+            elif quote is not None or offset is not None:
+                quote_checked += 1
+                ok, detail = verify_quote(chapter_text, quote, offset)
+                if not ok:
+                    quote_mismatch.append(f"{number}:{detail}")
+        elif not isinstance(evidence, str) or not evidence.strip():
             invalid.append(f"{number}:evidence")
     tail_extra = {}
     if missing:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"缺少语义校验项：{chr(44).join(missing)}"]}
     if invalid:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"语义记录缺少合法 evidence/status：{chr(44).join(invalid[:8])}"]}
+    if quote_mismatch:
+        return {"name": "30项语义证据", "ok": False, "exit_code": 1,
+                "tail": [f"引文与正文不符（{len(quote_mismatch)} 项，不可篡改校验失败）："
+                         + quote_mismatch[0]]}
     if failed:
         return {"name": "30项语义证据", "ok": False, "exit_code": 1, "tail": [f"存在未解决语义项：{chr(44).join(map(str, failed))}"]}
     if weak:
         return {"name": "30项语义证据", "ok": True, "exit_code": 0, "weak": weak,
+                "quote_checked": quote_checked,
                 "tail": [f"第14-30项均有 status + evidence，其中 {len(weak)} 项为 weak 弱证据"
                          f"（{chr(44).join(map(str, weak[:8]))}）：未经 AI 语义复核，Gate 不卡死，"
                          "但 delivery_ready=false，不可作为正式交付结论"]}
-    return {"name": "30项语义证据", "ok": True, "exit_code": 0, "tail": [f"第14-30项共{len(SEMANTIC_CHECKS)}项均有 status + evidence"]}
+    return {"name": "30项语义证据", "ok": True, "exit_code": 0, "quote_checked": quote_checked,
+            "tail": [f"第14-30项共{len(SEMANTIC_CHECKS)}项均有 status + evidence"
+                     + (f"，{quote_checked} 项引文锚点逐字比对通过" if quote_checked else "")]}
 
 def assess(root, chapter, full=False, with_semantic=True):
     target = resolve_chapter(root, chapter)

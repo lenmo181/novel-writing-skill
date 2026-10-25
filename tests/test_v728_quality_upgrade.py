@@ -60,8 +60,8 @@ class TestV728QualityUpgrade(unittest.TestCase):
     def test_evaluation_tool_passes(self):
         report = eval_skill.audit(ROOT)
         self.assertTrue(report["ok"], report)
-        self.assertEqual(report["count"], 16)
-        self.assertEqual(len(report["rows"]), 16)
+        self.assertEqual(report["count"], 17)
+        self.assertEqual(len(report["rows"]), 17)
         self.assertTrue(json.dumps(report, ensure_ascii=False))
 
     def test_receipt_protocol_and_release_check_exist(self):

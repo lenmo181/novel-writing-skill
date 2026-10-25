@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""技能包版本治理检查器（v7.46）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+"""技能包版本治理检查器（v7.50）：检查版本真源、默认值、路径、规则台账和运行时手册。"""
+import json
 from pathlib import Path
 import re
 import sys
 
 from config import (
+    AI_TASTE_CONTRAST_MAX,
+    AI_TASTE_IMAGERY_MAX_PER_K,
     DEFAULT_AI_SCORE_HARD_MAX,
     DEFAULT_CHAPTER_MAX,
     DEFAULT_CHAPTER_MIN,
@@ -17,6 +20,9 @@ from config import (
     DEFAULT_MOCHI_MIN,
     DEFAULT_ZHUQUE_THRESHOLD,
     DEFAULT_ZHUQUE_WARN,
+    EXPECTATION_STALE_CHAPTERS,
+    FORESHADOW_DUE_OFFSET,
+    FORESHADOW_OVERDUE_OFFSET,
     FULL_REVIEW_DIALOG_MAX,
     FULL_REVIEW_FORESHADOW_T2,
     FULL_REVIEW_FORESHADOW_T3,
@@ -62,6 +68,7 @@ def main() -> int:
             errors.append(f"核心文件缺失：{core}")
     skill = read("SKILL.md")
     readme = read("README.md")
+    readme_en = read("README.en.md")
     constants = read("references/常量表.md")
     if not skill or not readme or not constants:
         # 依赖文件不全时后面的逐项内容检查全部会误报，直接返回
@@ -80,6 +87,13 @@ def main() -> int:
         fail(errors, f"SKILL.md 活跃正文缺少发布日 {RELEASE_DATE}")
     if RELEASE_DATE not in readme.split("## 版本历史", 1)[0]:
         fail(errors, f"README.md 活跃正文缺少发布日 {RELEASE_DATE}")
+    # 海外发布物料属于同一版本面，不允许继续展示旧版本；上架精简包若未带
+    # 英文 README 则跳过（与目录裁剪兼容）。
+    if readme_en:
+        if f"Version: v{SKILL_VERSION}" not in readme_en.split("## Changelog", 1)[0]:
+            fail(errors, f"README.en.md 活跃正文缺少 v{SKILL_VERSION}")
+        if RELEASE_DATE not in readme_en.split("## Changelog", 1)[0]:
+            fail(errors, f"README.en.md 活跃正文缺少发布日 {RELEASE_DATE}")
     desc = re.search(r"description: \"(.*?)\"", skill, re.S)
     if desc is None:
         fail(errors, "frontmatter description 未找到（需 description: \"…\" 双引号格式）")
@@ -113,6 +127,25 @@ def main() -> int:
         highlight = readme.split(f"## v{SKILL_VERSION} 本轮升级重点", 1)
         if len(highlight) < 2 or "待补" in highlight[1].split("\n## ", 1)[0]:
             fail(errors, f"README.md 缺少「## v{SKILL_VERSION} 本轮升级重点」段，或该段仍含「待补」占位")
+
+    # MCP Registry 清单是可安装包的外部版本真源之一。它位于 packaging/，
+    # 发布包裁剪时可能不存在，因此只在源码工作区或完整分发树中校验。
+    server_json_path = ROOT / "packaging" / "mcp" / "server.json"
+    if server_json_path.is_file():
+        try:
+            server_meta = json.loads(server_json_path.read_text(encoding="utf-8"))
+            expected = f"{SKILL_VERSION}.0"
+            if server_meta.get("version") != expected:
+                fail(errors, f"packaging/mcp/server.json 顶层 version 漂移：应为 {expected}")
+            packages = server_meta.get("packages") or []
+            if not packages or packages[0].get("version") != expected:
+                fail(errors, f"packaging/mcp/server.json packages[0].version 漂移：应为 {expected}")
+        except (OSError, ValueError, AttributeError) as exc:
+            fail(errors, f"packaging/mcp/server.json 无法解析：{exc}")
+    server_py = read("packaging/mcp/server.py")
+    if server_py:
+        if not re.search(rf'SERVER_VERSION\s*=\s*["\']{re.escape(SKILL_VERSION)}\.0["\']', server_py):
+            fail(errors, f"packaging/mcp/server.py SERVER_VERSION 漂移：应为 {SKILL_VERSION}.0")
 
     checks = {
         "章节下限": (str(DEFAULT_CHAPTER_MIN), skill, constants),
@@ -148,6 +181,7 @@ def main() -> int:
         "tools/doctor.py", "tools/eval_skill.py", "tools/release_check.py",
         "tools/init_project.py", "tools/entity_index.py", "tools/project_health.py",
         "tools/full_review.py", "tools/lint_skill.py", "tools/repair_runner.py",
+        "tools/fact_ledger.py",
     ]
     for path in tool_paths:
         text = read(path)
@@ -287,6 +321,13 @@ def main() -> int:
         (str(FULL_REVIEW_NGRAM_OVERLAP_WARN), "FULL_REVIEW_NGRAM_OVERLAP_WARN"),
         (str(FULL_REVIEW_FORESHADOW_T2), "FULL_REVIEW_FORESHADOW_T2"),
         (str(FULL_REVIEW_FORESHADOW_T3), "FULL_REVIEW_FORESHADOW_T3"),
+        # v7.49：新增常量同步纳入漂移守护——常量表·十四新增章节后，
+        # config 值改了而常量表没改必须被 lint 拦下（口径漂移防线）
+        (str(EXPECTATION_STALE_CHAPTERS), "EXPECTATION_STALE_CHAPTERS"),
+        (str(FORESHADOW_DUE_OFFSET), "FORESHADOW_DUE_OFFSET"),
+        (str(FORESHADOW_OVERDUE_OFFSET), "FORESHADOW_OVERDUE_OFFSET"),
+        (str(AI_TASTE_CONTRAST_MAX), "AI_TASTE_CONTRAST_MAX"),
+        (str(AI_TASTE_IMAGERY_MAX_PER_K), "AI_TASTE_IMAGERY_MAX_PER_K"),
     ]
     for value, name in const_expect:
         if value not in const_text:

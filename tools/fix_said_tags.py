@@ -27,6 +27,19 @@ from datetime import datetime
 
 NL = chr(10)
 STRUCT = ("又", "再", "接着", "然后")
+# v7.47：文字墙段长口径——与 check_chapter.py COUNTABLE 对齐（汉字+中文标点，
+# 排除 U+3000 全角空格）。此前 --walls 用原始 len(ln) 判段长，与文字墙硬卡
+# 口径不一致（30 个标点的 130 净字段落被误拆、净字 200 原始 145 的漏拆）
+COUNTABLE = re.compile(
+    "[\u4e00-\u9fff\u3400-\u4dbf"
+    "\u3001-\u303f"
+    "\uff00-\uffef"
+    "\u2018\u2019\u201c\u201d\u2014\u2026]"
+)
+
+
+def countable_len(s):
+    return len(COUNTABLE.findall(s))
 # 修饰语字符类（v7.30 收紧）：排除介词（对向跟和与给往朝冲）、否定（没不别莫）、
 # 「什么」的什、人称（你我）——此前「”他对她说，“Q”」里「对她」被当修饰语，
 # 动词「说」被删产出「他对她。」残句；「他没说什么」被反转成「他没什么。」。
@@ -101,6 +114,10 @@ def process_line(ln, stat):
 def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
     try:
         # utf-8-sig：带 BOM 的文件首行 ^锚定才不失效（BOM 字符会让首行标签漏修）
+        # v7.47：先读字节判断 BOM——写回时补回，避免 BOM 文件修复后 ef bb bf
+        # 静默消失（读 utf-8-sig 写 utf-8 的往返丢失）
+        with open(path, "rb") as _bf:
+            has_bom = _bf.read(3) == b"\xef\xbb\xbf"
         with open(path, encoding="utf-8-sig") as f:
             text = f.read()
     except (OSError, UnicodeDecodeError) as e:
@@ -133,29 +150,35 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
     if do_walls:
         parts = []
         for ln in text.split(NL):
-            if len(ln) > 140:
-                # 句界切点必须在引号span之外（引号感知，防拆断对白）
-                outside = set()
-                in_q = False
-                for i, ch in enumerate(ln):
-                    if ch == "“":
-                        in_q = True
-                    elif ch == "”":
-                        in_q = False
-                    elif not in_q:
-                        outside.add(i)
-                mid = len(ln) // 2
-                # 切点判定看标点本身（m.end()-1）是否在引号 span 外——
-                # 此前判 m.end()（标点后一字符），句号后紧跟 “ 时该位不在引号外
-                # 集合里，合法切点被误拒，部分文字墙拆不掉（v7.30）
-                cuts = [m.end() for m in re.finditer(r"[。！？；]", ln)
-                        if m.end() - 1 in outside and abs(m.end() - mid) <= 60]
-                if cuts:
+            # v7.47：COUNTABLE 口径判段长（与 check_chapter 文字墙口径一致）——
+            # 此前用原始 len(ln)，30 个标点的 130 净字段落（原始 160）被误拆，
+            # 净字 200 但原始 145 的漏拆
+            if countable_len(ln) > 140:
+                # v7.47：循环拆到 ≤140 为止——此前只切一刀，396 字段落切成
+                # 198+198 两段均 >140，用户以为修完、check_chapter 仍报文字墙
+                while countable_len(ln) > 140:
+                    # 句界切点必须在引号span之外（引号感知，防拆断对白）
+                    outside = set()
+                    in_q = False
+                    for i, ch in enumerate(ln):
+                        if ch == "“":
+                            in_q = True
+                        elif ch == "”":
+                            in_q = False
+                        elif not in_q:
+                            outside.add(i)
+                    mid = len(ln) // 2
+                    # 切点判定看标点本身（m.end()-1）是否在引号 span 外——
+                    # 此前判 m.end()（标点后一字符），句号后紧跟 “ 时该位不在引号外
+                    # 集合里，合法切点被误拒，部分文字墙拆不掉（v7.30）
+                    cuts = [m.end() for m in re.finditer(r"[。！？；]", ln)
+                            if m.end() - 1 in outside and abs(m.end() - mid) <= 60]
+                    if not cuts:
+                        break  # 引号内长段无合法切点，保留交人工
                     cut = min(cuts, key=lambda x: abs(x - mid))
                     parts.append(ln[:cut])
-                    parts.append(ln[cut:])
+                    ln = ln[cut:]
                     n_wall += 1
-                    continue
             parts.append(ln)
         text = NL.join(parts)
 
@@ -177,9 +200,13 @@ def process(path, dry, backup_dir, do_walls, do_meta, skip_tags=False):
             shutil.copy2(path, dst)
         # 原子写回（v7.30）：先写临时文件再 os.replace——此前直接截断式重写，
         # 写入中途崩溃/断电会把工作文件留在半写状态；--no-backup 时原文不可恢复
+        # v7.47：BOM 往返保持——读用 utf-8-sig（剥 BOM）写用 utf-8（不带），
+        # 此前 BOM 文件修复后 ef bb bf 静默消失，文件字节被无意义修改
         tmp = path + ".tmpfix"
         try:
             with open(tmp, "w", encoding="utf-8") as f:
+                if has_bom:
+                    f.write("\ufeff")
                 f.write(text)
             os.replace(tmp, path)
         except OSError as e:
@@ -210,7 +237,13 @@ def main():
         ap.error("必须提供书稿目录或 --files")
     if a.dir and a.files:
         ap.error("书稿目录与 --files 不能同时使用")
-    files = sorted({os.path.abspath(p) for p in (a.files if a.files else glob.glob(os.path.join(a.dir, "*.md")))})
+    # v7.47：glob.escape 转义目录名——「书稿[旧]」的 [旧] 此前被当字符类，
+    # 匹配 0 个文件 → "扫描 0 章" exit 0 静默成功；打错目录名同样静默 exit 0
+    scan_dir = a.files if a.files else glob.glob(os.path.join(glob.escape(a.dir), "*.md"))
+    files = sorted({os.path.abspath(p) for p in scan_dir})
+    if not a.files and not files:
+        print(f"[✗] 目录 {a.dir} 下没有 .md 章节文件（或目录名含特殊字符，请检查路径）")
+        return 2
     backup_dir = None
     if not a.no_backup and not a.dry_run and files:
         base_dir = os.path.dirname(files[0])

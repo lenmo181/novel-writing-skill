@@ -90,6 +90,15 @@ class TestConsoleEncoding(unittest.TestCase):
             self.assertIn("[✓]", proc.stdout)
             self.assertIn("→", proc.stdout)
 
+    def test_distribution_builders_configure_utf8(self):
+        """发布入口也会打印 ✓，不能被 runtime 工具清单漏掉。"""
+        required_stdout = 'sys.stdout.reconfigure(encoding="utf-8", errors="replace")'
+        required_stderr = 'sys.stderr.reconfigure(encoding="utf-8", errors="replace")'
+        for rel in ("packaging/pypi/build_wheel.py", "packaging/dify/bundle_skill.py"):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn(required_stdout, text, rel)
+            self.assertIn(required_stderr, text, rel)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
